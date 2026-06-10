@@ -7,6 +7,7 @@ import { MeetingLobby } from './pages/MeetingLobby'
 import { VideoRoom } from './pages/VideoRoom'
 import { MeetingSummary } from './pages/MeetingSummary'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { TeamWorkspace } from './pages/TeamWorkspace'
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -51,6 +52,15 @@ function App() {
           element={
             <ProtectedRoute>
               <MeetingSummary />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/workspace"
+          element={
+            <ProtectedRoute>
+              <TeamWorkspace />
             </ProtectedRoute>
           }
         />
