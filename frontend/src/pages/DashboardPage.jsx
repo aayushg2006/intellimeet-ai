@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut, User, Video, Plus, ArrowUpRight } from 'lucide-react'
+import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2 } from 'lucide-react'
 
 export const DashboardPage = () => {
   const navigate = useNavigate()
@@ -35,6 +35,8 @@ export const DashboardPage = () => {
     day: 'numeric',
   })
 
+  const mockMeetingIds = ['WEEKLY1', 'DESIGN2', 'SPRINT3']
+
   return (
     <div className="min-h-screen bg-[#FAF9F7] text-[#1A1A1A]">
       <div className="max-w-6xl mx-auto px-6 py-8">
@@ -43,6 +45,24 @@ export const DashboardPage = () => {
             <div className="flex items-center gap-2">
               <span className="text-[#7C3AED] text-sm">●</span>
               <span className="text-lg font-semibold text-[#1A1A1A]">IntellMeet</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => navigate('/workspace')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-[#6B6560] hover:text-[#1A1A1A] hover:bg-[#F5F2EE] transition-colors"
+              >
+                <LayoutGrid size={15} />
+                Workspace
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/analytics')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-[#6B6560] hover:text-[#1A1A1A] hover:bg-[#F5F2EE] transition-colors"
+              >
+                <BarChart2 size={15} />
+                Analytics
+              </button>
             </div>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-[#7C3AED] text-white text-sm font-medium flex items-center justify-center">
@@ -108,6 +128,38 @@ export const DashboardPage = () => {
           </button>
         </div>
 
+        <div className="grid grid-cols-2 gap-4 mb-8">
+          <button
+            onClick={() => navigate('/workspace')}
+            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+          >
+            <div className="w-10 h-10 bg-[#059669]/10 rounded-xl flex items-center justify-center mb-4">
+              <LayoutGrid size={20} className="text-[#059669]" />
+            </div>
+            <div className="text-[#1A1A1A] font-semibold text-lg">Team Workspace</div>
+            <div className="text-sm text-[#6B6560] mt-1">View tasks & sprint board</div>
+            <ArrowUpRight
+              size={15}
+              className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors"
+            />
+          </button>
+
+          <button
+            onClick={() => navigate('/analytics')}
+            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+          >
+            <div className="w-10 h-10 bg-[#D97706]/10 rounded-xl flex items-center justify-center mb-4">
+              <BarChart2 size={20} className="text-[#D97706]" />
+            </div>
+            <div className="text-[#1A1A1A] font-semibold text-lg">Analytics</div>
+            <div className="text-sm text-[#6B6560] mt-1">Meeting insights & reports</div>
+            <ArrowUpRight
+              size={15}
+              className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors"
+            />
+          </button>
+        </div>
+
         <div className="grid grid-cols-3 gap-4 mb-8">
           <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
             <div className="text-2xl font-semibold text-[#1A1A1A]">5</div>
@@ -132,10 +184,11 @@ export const DashboardPage = () => {
               { name: 'Weekly Sync', date: 'Today, 10:00 AM', participants: '4 people' },
               { name: 'Design Review', date: 'Yesterday, 2:00 PM', participants: '6 people' },
               { name: 'Sprint Planning', date: 'Mon, 9:00 AM', participants: '8 people' },
-            ].map((meeting) => (
+            ].map((meeting, index) => (
               <button
                 key={meeting.name}
                 type="button"
+                onClick={() => navigate(`/meeting/${mockMeetingIds[index]}/summary`)}
                 className="flex items-center justify-between px-5 py-4 hover:bg-[#F5F2EE] transition-colors cursor-pointer w-full text-left"
               >
                 <div className="flex items-center">
