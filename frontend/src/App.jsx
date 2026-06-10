@@ -5,6 +5,7 @@ import { RegisterPage } from './pages/RegisterPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { MeetingLobby } from './pages/MeetingLobby'
 import { VideoRoom } from './pages/VideoRoom'
+import { MeetingSummary } from './pages/MeetingSummary'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 function App() {
@@ -42,6 +43,14 @@ function App() {
           element={
             <ProtectedRoute>
               <VideoRoom />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/meeting/:meetingId/summary"
+          element={
+            <ProtectedRoute>
+              <MeetingSummary />
             </ProtectedRoute>
           }
         />

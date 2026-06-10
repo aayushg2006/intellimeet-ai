@@ -5,10 +5,12 @@ export const useWebRTC = () => {
   const [remoteStreams, setRemoteStreams] = useState({})
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
+  const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [error, setError] = useState(null)
 
   const peerConnectionsRef = useRef({})
   const localStreamRef = useRef(null)
+  const screenStream = useRef(null)
 
   // Initialize local media stream
   const initializeMedia = async () => {
@@ -66,6 +68,40 @@ export const useWebRTC = () => {
       })
       setIsVideoEnabled(!isVideoEnabled)
     }
+  }
+
+  const startScreenShare = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      })
+
+      screenStream.current = stream
+      setIsScreenSharing(true)
+
+      const [videoTrack] = stream.getVideoTracks()
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          stopScreenShare()
+        }
+      }
+
+      return stream
+    } catch (err) {
+      if (err.name !== 'NotAllowedError') {
+        setError('Failed to share screen')
+      }
+      return null
+    }
+  }
+
+  const stopScreenShare = () => {
+    if (screenStream.current) {
+      screenStream.current.getTracks().forEach((track) => track.stop())
+      screenStream.current = null
+    }
+    setIsScreenSharing(false)
   }
 
   // Get available devices
@@ -127,11 +163,15 @@ export const useWebRTC = () => {
     remoteStreams,
     isAudioEnabled,
     isVideoEnabled,
+    isScreenSharing,
+    screenStream,
     error,
     initializeMedia,
     stopMedia,
     toggleAudio,
     toggleVideo,
+    startScreenShare,
+    stopScreenShare,
     getDevices,
     switchDevice,
   }
