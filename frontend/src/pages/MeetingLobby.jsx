@@ -14,6 +14,8 @@ export const MeetingLobby = () => {
   const [selectedAudio, setSelectedAudio] = useState('')
   const [selectedVideo, setSelectedVideo] = useState('')
 
+  const participantInitial = participantName?.trim()?.charAt(0)?.toUpperCase() || 'U'
+
   const videoRef = useRef(null)
 
   const {
@@ -80,171 +82,166 @@ export const MeetingLobby = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 to-blue-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[#FAF9F7] flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
-          <p className="text-white text-lg">Accessing camera and microphone...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#E8E4DD] border-t-[#7C3AED] mx-auto"></div>
+          <p className="text-sm text-[#6B6560] mt-3">Setting up your camera...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 to-blue-900 p-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-3xl font-bold text-white">IntellMeet Lobby</h1>
+    <div className="min-h-screen bg-[#FAF9F7]">
+      <div className="border-b border-[#E8E4DD] bg-[#FAF9F7] px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
+          <span className="text-[#7C3AED]">●</span>
+          IntellMeet
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="bg-[#F5F2EE] border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full font-mono">
+            {meetingId}
+          </span>
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-2 text-white hover:text-gray-200"
+            className="flex items-center gap-1.5 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
           >
-            <ArrowLeft size={20} />
-            Back
+            <ArrowLeft size={16} />
+            Back to dashboard
           </button>
         </div>
+      </div>
 
-        {/* Main Grid */}
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Left - Video Preview */}
-          <div className="lg:col-span-2">
-            <div className="bg-black rounded-lg overflow-hidden shadow-2xl">
-              {/* Video Element */}
-              <div className="relative">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full h-96 object-cover bg-black"
-                />
+      <div className="max-w-5xl mx-auto px-6 py-8">
+        <h1 className="text-2xl font-semibold text-[#1A1A1A] mb-1">Ready to join?</h1>
+        <p className="text-sm text-[#6B6560] mb-8">
+          Check your camera and microphone before joining
+        </p>
 
-                {/* Status Badges */}
-                <div className="absolute top-4 right-4 flex gap-2">
-                  <div
-                    className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium ${
-                      isAudioEnabled
-                        ? 'bg-green-500 text-white'
-                        : 'bg-red-500 text-white'
-                    }`}
-                  >
-                    {isAudioEnabled ? (
-                      <Mic size={16} />
-                    ) : (
-                      <Volume size={16} />
-                    )}
-                    {isAudioEnabled ? 'Microphone On' : 'Microphone Off'}
-                  </div>
+        <div className="grid lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3">
+            <div className="bg-[#1A1A1A] rounded-2xl overflow-hidden relative aspect-video">
+              <video
+                ref={videoRef}
+                autoPlay
+                muted
+                playsInline
+                className="w-full h-full object-cover"
+              />
 
-                  <div
-                    className={`flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium ${
-                      isVideoEnabled
-                        ? 'bg-green-500 text-white'
-                        : 'bg-red-500 text-white'
-                    }`}
-                  >
-                    {isVideoEnabled ? (
-                      <Video size={16} />
-                    ) : (
-                      <Video size={16} className="line-through" />
-                    )}
-                    {isVideoEnabled ? 'Camera On' : 'Camera Off'}
+              {!isVideoEnabled && (
+                <div className="absolute inset-0 bg-[#1A1A1A] flex items-center justify-center">
+                  <div className="w-20 h-20 rounded-full bg-[#7C3AED]/20 text-[#7C3AED] text-3xl font-semibold flex items-center justify-center">
+                    {userInitials}
                   </div>
                 </div>
+              )}
 
-                {/* Control Buttons */}
-                <div className="absolute bottom-4 left-4 right-4 flex gap-3 justify-center">
-                  <button
-                    onClick={toggleAudio}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-                      isAudioEnabled
-                        ? 'bg-white text-gray-900 hover:bg-gray-100'
-                        : 'bg-red-600 text-white hover:bg-red-700'
-                    }`}
-                  >
-                    {isAudioEnabled ? (
-                      <Mic size={20} />
-                    ) : (
-                      <Volume size={20} />
-                    )}
-                  </button>
-
-                  <button
-                    onClick={toggleVideo}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition ${
-                      isVideoEnabled
-                        ? 'bg-white text-gray-900 hover:bg-gray-100'
-                        : 'bg-red-600 text-white hover:bg-red-700'
-                    }`}
-                  >
-                    <Video size={20} />
-                  </button>
+              <div className="absolute top-3 right-3 flex gap-2">
+                <div className="bg-black/40 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${isAudioEnabled ? 'bg-green-400' : 'bg-red-400'}`}
+                  />
+                  {isAudioEnabled ? 'Audio On' : 'Audio Off'}
+                </div>
+                <div className="bg-black/40 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${isVideoEnabled ? 'bg-green-400' : 'bg-red-400'}`}
+                  />
+                  {isVideoEnabled ? 'Video On' : 'Video Off'}
                 </div>
               </div>
 
-              {/* Error Alert */}
-              {error && (
-                <div className="bg-red-600 text-white p-4 text-center">
-                  ⚠️ {error}
-                </div>
-              )}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-4 pt-8 flex items-center justify-center gap-3">
+                <button
+                  onClick={toggleAudio}
+                  className={`w-11 h-11 rounded-full flex items-center justify-center transition ${
+                    isAudioEnabled
+                      ? 'bg-white/20 backdrop-blur-sm text-white hover:bg-white/30'
+                      : 'bg-red-500/80 hover:bg-red-600 text-white'
+                  }`}
+                >
+                  {isAudioEnabled ? <Mic size={20} /> : <Volume size={20} />}
+                </button>
+                <button
+                  onClick={toggleVideo}
+                  className={`w-11 h-11 rounded-full flex items-center justify-center transition ${
+                    isVideoEnabled
+                      ? 'bg-white/20 backdrop-blur-sm text-white hover:bg-white/30'
+                      : 'bg-red-500/80 hover:bg-red-600 text-white'
+                  }`}
+                >
+                  <Video size={20} />
+                </button>
+              </div>
             </div>
+
+            {error && (
+              <div className="mt-2 text-sm text-red-500 flex items-center gap-1.5">
+                ⚠️ {error}
+              </div>
+            )}
           </div>
 
-          {/* Right - Settings */}
-          <div className="space-y-6">
-            {/* Participant Name */}
-            <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-lg p-6 text-white">
-              <h3 className="font-bold text-lg mb-4">Participant Name</h3>
+          <div className="lg:col-span-2 space-y-4">
+            <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
+              <label className="text-xs font-medium text-[#6B6560] uppercase tracking-wider mb-2 inline-block">
+                Your name
+              </label>
               <input
                 type="text"
                 value={participantName}
                 onChange={(e) => setParticipantName(e.target.value)}
-                placeholder="Enter your name"
-                className="w-full px-4 py-2 rounded-lg bg-white text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                placeholder="Enter your display name"
+                className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-4 py-2.5 text-sm text-[#1A1A1A] placeholder-[#C4BDB5] focus:outline-none focus:border-[#7C3AED] transition"
               />
             </div>
 
-            {/* Audio Device */}
-            <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-lg p-6 text-white">
-              <h3 className="font-bold text-lg mb-4">🎤 Microphone</h3>
-              <select
-                value={selectedAudio}
-                onChange={(e) => handleDeviceSwitch(e.target.value, 'audio')}
-                className="w-full px-4 py-2 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-400"
-              >
-                {audioDevices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Microphone ${device.deviceId.slice(0, 5)}`}
-                  </option>
-                ))}
-              </select>
+            <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5 space-y-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1.5 text-xs font-medium text-[#6B6560] uppercase tracking-wider">
+                  <Mic size={13} className="text-[#6B6560]" />
+                  Microphone
+                </div>
+                <select
+                  value={selectedAudio}
+                  onChange={(e) => handleDeviceSwitch(e.target.value, 'audio')}
+                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-3 py-2 text-sm text-[#1A1A1A] focus:outline-none focus:border-[#7C3AED] transition"
+                >
+                  {audioDevices.map((device) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `Microphone ${device.deviceId.slice(0, 5)}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2 mb-1.5 text-xs font-medium text-[#6B6560] uppercase tracking-wider">
+                  <Video size={13} className="text-[#6B6560]" />
+                  Camera
+                </div>
+                <select
+                  value={selectedVideo}
+                  onChange={(e) => handleDeviceSwitch(e.target.value, 'video')}
+                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-3 py-2 text-sm text-[#1A1A1A] focus:outline-none focus:border-[#7C3AED] transition"
+                >
+                  {videoDevices.map((device) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            {/* Video Device */}
-            <div className="bg-white bg-opacity-10 backdrop-blur-md rounded-lg p-6 text-white">
-              <h3 className="font-bold text-lg mb-4">📹 Camera</h3>
-              <select
-                value={selectedVideo}
-                onChange={(e) => handleDeviceSwitch(e.target.value, 'video')}
-                className="w-full px-4 py-2 rounded-lg bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-400"
-              >
-                {videoDevices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Join Button */}
             <button
               onClick={handleJoinMeeting}
               disabled={!participantName.trim() || !localStream}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-lg font-bold hover:from-green-600 hover:to-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-3 text-sm font-semibold transition flex items-center justify-center gap-2"
             >
-              <Play size={20} />
-              Start Meeting
+              <Play size={16} />
+              Join Meeting
             </button>
           </div>
         </div>
