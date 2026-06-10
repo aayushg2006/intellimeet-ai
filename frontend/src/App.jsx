@@ -8,6 +8,7 @@ import { VideoRoom } from './pages/VideoRoom'
 import { MeetingSummary } from './pages/MeetingSummary'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { TeamWorkspace } from './pages/TeamWorkspace'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -61,6 +62,14 @@ function App() {
           element={
             <ProtectedRoute>
               <TeamWorkspace />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute>
+              <AnalyticsPage />
             </ProtectedRoute>
           }
         />
