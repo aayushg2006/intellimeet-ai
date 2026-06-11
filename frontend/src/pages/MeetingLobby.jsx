@@ -132,7 +132,7 @@ export const MeetingLobby = () => {
               {!isVideoEnabled && (
                 <div className="absolute inset-0 bg-[#1A1A1A] flex items-center justify-center">
                   <div className="w-20 h-20 rounded-full bg-[#7C3AED]/20 text-[#7C3AED] text-3xl font-semibold flex items-center justify-center">
-                    {userInitials}
+                    {participantInitial}
                   </div>
                 </div>
               )}
