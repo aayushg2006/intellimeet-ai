@@ -46,7 +46,14 @@ const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raise
       <div className="w-full h-full flex items-center justify-center bg-[#2C2C2E]">
         {tile.isLocal ? (
           <>
-            <video ref={tileRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+            <video
+              ref={tileRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full h-full object-cover"
+              style={{ transform: 'scaleX(-1)' }}
+            />
             {(!tile.isVideo || !localStream) && (
               <div className="absolute inset-0 bg-[#2C2C2E] flex items-center justify-center">
                 <div className="w-16 h-16 rounded-full bg-[#7C3AED]/30 text-[#7C3AED] text-2xl font-bold flex items-center justify-center">

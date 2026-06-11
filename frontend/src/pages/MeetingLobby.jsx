@@ -127,6 +127,7 @@ export const MeetingLobby = () => {
                 muted
                 playsInline
                 className="w-full h-full object-cover"
+                style={{ transform: 'scaleX(-1)' }}
               />
 
               {!isVideoEnabled && (
