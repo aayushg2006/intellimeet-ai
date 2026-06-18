@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useMeetingStore } from '../store/meetingStore'
-import { Video, Mic, Volume2, Volume, ArrowLeft, Play } from 'lucide-react'
+import { Video, Mic, Volume2, Volume, ArrowLeft, Play, Copy, Check } from 'lucide-react'
+import axios from 'axios'
 
 export const MeetingLobby = () => {
   const navigate = useNavigate()
@@ -13,6 +14,7 @@ export const MeetingLobby = () => {
   const [videoDevices, setVideoDevices] = useState([])
   const [selectedAudio, setSelectedAudio] = useState('')
   const [selectedVideo, setSelectedVideo] = useState('')
+  const [copied, setCopied] = useState(false)
 
   const participantInitial = participantName?.trim()?.charAt(0)?.toUpperCase() || 'U'
 
@@ -35,17 +37,33 @@ export const MeetingLobby = () => {
   // Initialize media on mount
   useEffect(() => {
     const init = async () => {
-      await initializeMedia()
-      const devices = await getDevices()
-      setAudioDevices(devices.audioDevices)
-      setVideoDevices(devices.videoDevices)
-      if (devices.audioDevices.length > 0) {
-        setSelectedAudio(devices.audioDevices[0].deviceId)
+      try {
+        // Validate room exists before starting camera
+        const token = localStorage.getItem('auth-storage') ? JSON.parse(localStorage.getItem('auth-storage')).state.token : null
+        await axios.get(`/api/meetings/room/${meetingId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        })
+
+        await initializeMedia()
+        const devices = await getDevices()
+        setAudioDevices(devices.audioDevices)
+        setVideoDevices(devices.videoDevices)
+        if (devices.audioDevices.length > 0) {
+          setSelectedAudio(devices.audioDevices[0].deviceId)
+        }
+        if (devices.videoDevices.length > 0) {
+          setSelectedVideo(devices.videoDevices[0].deviceId)
+        }
+        setLoading(false)
+      } catch (err) {
+        if (err.response && err.response.status === 404) {
+          alert('Meeting not found! Please check the link.')
+          navigate('/dashboard')
+        } else {
+          // It might be a network error or missing token for public rooms, proceed anyway for now
+          setLoading(false)
+        }
       }
-      if (devices.videoDevices.length > 0) {
-        setSelectedVideo(devices.videoDevices[0].deviceId)
-      }
-      setLoading(false)
     }
 
     init()
@@ -80,6 +98,12 @@ export const MeetingLobby = () => {
     navigate(`/meeting/${meetingId}/room`)
   }
 
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(window.location.href)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#FAF9F7] flex items-center justify-center">
@@ -99,9 +123,16 @@ export const MeetingLobby = () => {
           IntellMeet
         </div>
         <div className="flex items-center gap-3">
-          <span className="bg-[#F5F2EE] border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full font-mono">
-            {meetingId}
-          </span>
+          <div className="flex items-center gap-1 bg-[#F5F2EE] border border-[#E8E4DD] rounded-full p-1 pl-3">
+            <span className="text-[#6B6560] text-xs font-mono">{meetingId}</span>
+            <button
+              onClick={handleCopyLink}
+              className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-[#6B6560] shadow-sm hover:text-[#7C3AED] hover:bg-[#7C3AED]/10 transition"
+              title="Copy link"
+            >
+              {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+            </button>
+          </div>
           <button
             onClick={() => navigate('/dashboard')}
             className="flex items-center gap-1.5 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
@@ -238,7 +269,7 @@ export const MeetingLobby = () => {
 
             <button
               onClick={handleJoinMeeting}
-              disabled={!participantName.trim() || !localStream}
+              disabled={!participantName.trim()}
               className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-3 text-sm font-semibold transition flex items-center justify-center gap-2"
             >
               <Play size={16} />

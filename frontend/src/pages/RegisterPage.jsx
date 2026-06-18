@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { Mail, Lock, User, Eye, EyeOff, Loader } from 'lucide-react'
+import axios from 'axios'
 
 export const RegisterPage = () => {
   const navigate = useNavigate()
@@ -49,21 +50,18 @@ export const RegisterPage = () => {
     setLoading(true)
 
     try {
-      // Simulasi API call - ganti dengan API yang sebenarnya
-      // const response = await axios.post('/api/auth/register', {
-      //   name: formData.name,
-      //   email: formData.email,
-      //   password: formData.password,
-      // })
-      // const { user, token } = response.data
-
-      // Dummy data untuk testing
-      const userData = {
-        id: '1',
+      const response = await axios.post('/api/auth/register', {
         name: formData.name,
         email: formData.email,
+        password: formData.password,
+      })
+      const { user, token, _id, name, email } = response.data
+
+      const userData = {
+        id: _id || user?.id || '1',
+        name: name || user?.name || formData.name,
+        email: email || user?.email || formData.email,
       }
-      const token = 'dummy-token-' + Date.now()
 
       register(userData, token)
       navigate('/dashboard')

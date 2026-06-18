@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import {
@@ -12,87 +12,41 @@ import {
   ChevronUp,
   Copy,
   Check,
+  Loader
 } from 'lucide-react'
+import axios from 'axios'
 
 export const MeetingSummary = () => {
   const navigate = useNavigate()
   const { meetingId } = useParams()
   const { user } = useAuthStore()
 
-  const mockSummary = {
-    title: 'Weekly Sync',
-    date: new Date().toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }),
-    duration: '45 minutes',
-    participants: ['Alice Johnson', 'Bob Smith', 'Carol White', 'You'],
-    summary:
-      'The team discussed Q3 progress and identified key blockers. Frontend development is on track with the new dashboard design approved. Backend API integration is delayed by one week due to WebRTC complexity. The team agreed to extend the sprint by 3 days.',
-    actionItems: [
-      {
-        id: 1,
-        task: 'Fix WebRTC peer connection logic',
-        assignee: 'Bob Smith',
-        due: 'Tomorrow',
-        done: false,
-      },
-      {
-        id: 2,
-        task: 'Deploy frontend to Vercel staging',
-        assignee: 'You',
-        due: 'Today',
-        done: false,
-      },
-      {
-        id: 3,
-        task: 'Update API documentation',
-        assignee: 'Carol White',
-        due: 'Friday',
-        done: true,
-      },
-      {
-        id: 4,
-        task: 'Review pull request #42',
-        assignee: 'Alice Johnson',
-        due: 'Today',
-        done: false,
-      },
-    ],
-    transcript: [
-      {
-        speaker: 'Alice Johnson',
-        time: '0:01',
-        text: "Good morning everyone, let's get started with the weekly sync.",
-      },
-      {
-        speaker: 'Bob Smith',
-        time: '0:45',
-        text: "I've been working on the WebRTC integration, it's more complex than expected.",
-      },
-      {
-        speaker: 'Carol White',
-        time: '2:10',
-        text: 'The API documentation needs to be updated before we can proceed with testing.',
-      },
-      {
-        speaker: 'You',
-        time: '3:30',
-        text: 'I can handle the frontend deployment to staging by end of day.',
-      },
-      {
-        speaker: 'Alice Johnson',
-        time: '5:15',
-        text: "Great, let's extend the sprint by 3 days to accommodate the delays.",
-      },
-    ],
-  }
-
-  const [actionItems, setActionItems] = useState(mockSummary.actionItems)
+  const [summaryData, setSummaryData] = useState(null)
+  const [actionItems, setActionItems] = useState([])
   const [showTranscript, setShowTranscript] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const { token } = useAuthStore()
+
+  useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        const res = await axios.get(`/api/summaries/${meetingId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        const data = res.data
+        if (data) {
+          setSummaryData(data)
+          setActionItems(data.actionItems || [])
+        }
+      } catch (error) {
+        console.error('Error fetching summary:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchSummary()
+  }, [meetingId, token])
 
   const toggleAction = (id) => {
     setActionItems((prev) =>
@@ -104,9 +58,11 @@ export const MeetingSummary = () => {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(mockSummary.summary)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
+      if (summaryData?.summary) {
+        await navigator.clipboard.writeText(summaryData.summary)
+        setCopied(true)
+        window.setTimeout(() => setCopied(false), 2000)
+      }
     } catch (error) {
       console.error('Copy failed', error)
     }
@@ -133,19 +89,26 @@ export const MeetingSummary = () => {
       </div>
 
       <div className="max-w-4xl mx-auto px-6 pt-6 pb-10">
-        <div className="pb-6 border-b border-[#E8E4DD]">
-          <h1 className="text-2xl font-semibold text-[#1A1A1A]">{mockSummary.title}</h1>
+        {loading || !summaryData ? (
+          <div className="flex items-center justify-center py-20 text-[#6B6560]">
+            <Loader className="animate-spin mr-2" />
+            Loading summary...
+          </div>
+        ) : (
+          <>
+            <div className="pb-6 border-b border-[#E8E4DD]">
+              <h1 className="text-2xl font-semibold text-[#1A1A1A]">{summaryData.title}</h1>
           <div className="flex flex-wrap gap-4 mt-3">
             <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
-              {mockSummary.date}
+              {summaryData.date}
             </span>
             <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
               <Clock size={14} />
-              {mockSummary.duration}
+              {summaryData.duration || '0 minutes'}
             </span>
             <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
               <Users size={14} />
-              {mockSummary.participants.length} participants
+              {summaryData.participants?.length || 0} participants
             </span>
           </div>
         </div>
@@ -167,7 +130,7 @@ export const MeetingSummary = () => {
                 </button>
               </div>
               <p className="text-sm text-[#6B6560] leading-relaxed pt-3">
-                {mockSummary.summary}
+                {summaryData.summary}
               </p>
               <div className="bg-[#7C3AED]/8 text-[#7C3AED] text-xs px-2.5 py-1 rounded-full inline-flex items-center gap-1 mt-4">
                 ✦ Generated by AI
@@ -238,7 +201,7 @@ export const MeetingSummary = () => {
               </button>
               {showTranscript && (
                 <div className="px-6 pb-6 space-y-4">
-                  {mockSummary.transcript.map((line, index) => (
+                  {summaryData.transcript?.map((line, index) => (
                     <div key={index}>
                       <div className="flex items-center gap-3 mb-2">
                         <span className="text-xs font-semibold text-[#7C3AED]">
@@ -258,7 +221,7 @@ export const MeetingSummary = () => {
             <div className="bg-white border border-[#E8E4DD] rounded-2xl p-4">
               <h2 className="text-sm font-semibold text-[#1A1A1A] mb-3">Participants</h2>
               <div className="space-y-3">
-                {mockSummary.participants.map((participant) => (
+                {summaryData.participants?.map((participant) => (
                   <div key={participant} className="flex items-center gap-3 py-2">
                     <div className="w-8 h-8 rounded-full bg-[#7C3AED]/10 text-[#7C3AED] text-xs font-semibold flex items-center justify-center">
                       {participant
@@ -286,11 +249,11 @@ export const MeetingSummary = () => {
                 </div>
                 <div>
                   <p className="text-xs text-[#6B6560]">Date</p>
-                  <p className="font-medium text-[#1A1A1A]">{mockSummary.date}</p>
+                  <p className="font-medium text-[#1A1A1A]">{summaryData.date}</p>
                 </div>
                 <div>
                   <p className="text-xs text-[#6B6560]">Duration</p>
-                  <p className="font-medium text-[#1A1A1A]">{mockSummary.duration}</p>
+                  <p className="font-medium text-[#1A1A1A]">{summaryData.duration || '0 minutes'}</p>
                 </div>
               </div>
             </div>
@@ -305,6 +268,8 @@ export const MeetingSummary = () => {
             </button>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   )

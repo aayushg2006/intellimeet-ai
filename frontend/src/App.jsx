@@ -10,76 +10,89 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { TeamWorkspace } from './pages/TeamWorkspace'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+})
+
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
 
   return (
-    <Router>
-      <Routes>
-        <Route
-          path="/login"
-          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
-        />
-        <Route
-          path="/register"
-          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />}
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <DashboardPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/meeting/:meetingId"
-          element={
-            <ProtectedRoute>
-              <MeetingLobby />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/meeting/:meetingId/room"
-          element={
-            <ProtectedRoute>
-              <VideoRoom />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/meeting/:meetingId/summary"
-          element={
-            <ProtectedRoute>
-              <MeetingSummary />
-            </ProtectedRoute>
-          }
-        />
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <Routes>
+          <Route
+            path="/login"
+            element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+          />
+          <Route
+            path="/register"
+            element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />}
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/meeting/:meetingId"
+            element={
+              <ProtectedRoute>
+                <MeetingLobby />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/meeting/:meetingId/room"
+            element={
+              <ProtectedRoute>
+                <VideoRoom />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/meeting/:meetingId/summary"
+            element={
+              <ProtectedRoute>
+                <MeetingSummary />
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/workspace"
-          element={
-            <ProtectedRoute>
-              <TeamWorkspace />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/analytics"
-          element={
-            <ProtectedRoute>
-              <AnalyticsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/"
-          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />}
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Router>
+          <Route
+            path="/workspace"
+            element={
+              <ProtectedRoute>
+                <TeamWorkspace />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <ProtectedRoute>
+                <AnalyticsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/"
+            element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />}
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </QueryClientProvider>
   )
 }
 

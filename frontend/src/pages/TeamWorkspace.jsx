@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus,
@@ -10,112 +10,13 @@ import {
   Clock,
   Tag,
 } from 'lucide-react'
+import axios from 'axios'
+import { useQuery } from '@tanstack/react-query'
+import { useAuthStore } from '../store/authStore'
 
 export const TeamWorkspace = () => {
   const navigate = useNavigate()
-
-  const mockColumns = [
-    {
-      id: 'todo',
-      title: 'To Do',
-      color: '#6B6560',
-      tasks: [
-        {
-          id: 1,
-          title: 'Set up WebRTC signaling server',
-          tag: 'Backend',
-          assignee: 'BS',
-          priority: 'high',
-          due: 'Today',
-        },
-        {
-          id: 2,
-          title: 'Design analytics dashboard UI',
-          tag: 'Frontend',
-          assignee: 'AJ',
-          priority: 'medium',
-          due: 'Tomorrow',
-        },
-        {
-          id: 3,
-          title: 'Write unit tests for auth module',
-          tag: 'Testing',
-          assignee: 'CW',
-          priority: 'low',
-          due: 'Friday',
-        },
-      ],
-    },
-    {
-      id: 'inprogress',
-      title: 'In Progress',
-      color: '#D97706',
-      tasks: [
-        {
-          id: 4,
-          title: 'Build meeting lobby UI',
-          tag: 'Frontend',
-          assignee: 'You',
-          priority: 'high',
-          due: 'Today',
-        },
-        {
-          id: 5,
-          title: 'Integrate Socket.io events',
-          tag: 'Backend',
-          assignee: 'BS',
-          priority: 'high',
-          due: 'Today',
-        },
-      ],
-    },
-    {
-      id: 'review',
-      title: 'In Review',
-      color: '#7C3AED',
-      tasks: [
-        {
-          id: 6,
-          title: 'Dashboard redesign',
-          tag: 'Frontend',
-          assignee: 'You',
-          priority: 'medium',
-          due: 'Yesterday',
-        },
-        {
-          id: 7,
-          title: 'MongoDB schema optimization',
-          tag: 'Backend',
-          assignee: 'AJ',
-          priority: 'low',
-          due: 'Mon',
-        },
-      ],
-    },
-    {
-      id: 'done',
-      title: 'Done',
-      color: '#059669',
-      tasks: [
-        {
-          id: 8,
-          title: 'Setup project boilerplate',
-          tag: 'DevOps',
-          assignee: 'CW',
-          priority: 'low',
-          due: 'Last week',
-        },
-        {
-          id: 9,
-          title: 'Auth pages (login & register)',
-          tag: 'Frontend',
-          assignee: 'You',
-          priority: 'medium',
-          due: 'Last week',
-        },
-      ],
-    },
-  ]
+  const { token } = useAuthStore()
 
   const tagColors = {
     Frontend: 'bg-blue-50 text-blue-600',
@@ -130,7 +31,41 @@ export const TeamWorkspace = () => {
     low: 'bg-gray-300',
   }
 
-  const [columns] = useState(mockColumns)
+  const { data: tasks = [], isLoading: loading } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: async () => {
+      const res = await axios.get('/api/tasks', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      return res.data
+    },
+    enabled: !!token
+  })
+
+  const getColumns = () => {
+    const grouped = { Todo: [], 'In Progress': [], 'In Review': [], Done: [] }
+    tasks.forEach(task => {
+      if (grouped[task.status]) {
+        grouped[task.status].push({
+          id: task._id,
+          title: task.title,
+          tag: 'Backend', // Default tag
+          assignee: task.assignee?.name?.substring(0, 2).toUpperCase() || 'U',
+          priority: 'medium', // Default priority
+          due: task.dueDate ? new Date(task.dueDate).toLocaleDateString() : 'N/A'
+        })
+      }
+    })
+
+    return [
+      { id: 'todo', title: 'To Do', color: '#6B6560', tasks: grouped['Todo'] },
+      { id: 'inprogress', title: 'In Progress', color: '#D97706', tasks: grouped['In Progress'] },
+      { id: 'review', title: 'In Review', color: '#7C3AED', tasks: grouped['In Review'] },
+      { id: 'done', title: 'Done', color: '#059669', tasks: grouped['Done'] },
+    ]
+  }
+
+  const columns = getColumns()
 
   const totalTasks = columns.reduce((sum, column) => sum + column.tasks.length, 0)
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { Mail, Lock, Eye, EyeOff, Loader } from 'lucide-react'
+import axios from 'axios'
 
 export const LoginPage = () => {
   const navigate = useNavigate()
@@ -19,17 +20,14 @@ export const LoginPage = () => {
     setLoading(true)
 
     try {
-      // Simulasi API call - ganti dengan API yang sebenarnya
-      // const response = await axios.post('/api/auth/login', { email, password })
-      // const { user, token } = response.data
+      const response = await axios.post('/api/auth/login', { email, password })
+      const { user, token, _id, name, email: userEmail } = response.data
 
-      // Dummy data untuk testing
       const userData = {
-        id: '1',
-        email,
-        name: email.split('@')[0],
+        id: _id || user?.id || '1',
+        email: userEmail || email,
+        name: name || user?.name || email.split('@')[0],
       }
-      const token = 'dummy-token-' + Date.now()
 
       login(userData, token)
       navigate('/dashboard')

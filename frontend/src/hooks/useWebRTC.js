@@ -290,6 +290,100 @@ export const useWebRTC = () => {
     }
   }
 
+  const createPeerConnection = (socketId, socketRef) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+      ]
+    })
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socketRef.current.emit('ice-candidate', event.candidate, socketId)
+      }
+    }
+
+    pc.ontrack = (event) => {
+      setRemoteStreams((prev) => ({
+        ...prev,
+        [socketId]: event.streams[0]
+      }))
+    }
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => {
+        pc.addTrack(track, localStreamRef.current)
+      })
+    }
+
+    if (screenStream.current) {
+      screenStream.current.getTracks().forEach((track) => {
+        pc.addTrack(track, screenStream.current)
+      })
+    }
+
+    peerConnectionsRef.current[socketId] = pc
+    return pc
+  }
+
+  const handleUserConnected = async (socketId, socketRef) => {
+    const pc = createPeerConnection(socketId, socketRef)
+    try {
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      socketRef.current.emit('webrtc-offer', offer, socketId)
+    } catch (err) {
+      console.error('Error creating offer', err)
+    }
+  }
+
+  const handleOffer = async (offer, senderSocketId, socketRef) => {
+    const pc = createPeerConnection(senderSocketId, socketRef)
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer))
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      socketRef.current.emit('webrtc-answer', answer, senderSocketId)
+    } catch (err) {
+      console.error('Error handling offer', err)
+    }
+  }
+
+  const handleAnswer = async (answer, senderSocketId) => {
+    const pc = peerConnectionsRef.current[senderSocketId]
+    if (pc) {
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer))
+      } catch (err) {
+        console.error('Error handling answer', err)
+      }
+    }
+  }
+
+  const handleIceCandidate = async (candidate, senderSocketId) => {
+    const pc = peerConnectionsRef.current[senderSocketId]
+    if (pc) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      } catch (err) {
+        console.error('Error handling ice candidate', err)
+      }
+    }
+  }
+
+  const handleUserDisconnected = (socketId) => {
+    if (peerConnectionsRef.current[socketId]) {
+      peerConnectionsRef.current[socketId].close()
+      delete peerConnectionsRef.current[socketId]
+    }
+    setRemoteStreams((prev) => {
+      const newStreams = { ...prev }
+      delete newStreams[socketId]
+      return newStreams
+    })
+  }
+
   // Cleanup
   useEffect(() => {
     return () => {
@@ -320,5 +414,10 @@ export const useWebRTC = () => {
     stopScreenShare,
     getDevices,
     switchDevice,
+    handleUserConnected,
+    handleOffer,
+    handleAnswer,
+    handleIceCandidate,
+    handleUserDisconnected
   }
 }

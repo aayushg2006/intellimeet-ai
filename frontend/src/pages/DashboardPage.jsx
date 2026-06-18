@@ -1,22 +1,47 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2 } from 'lucide-react'
+import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import axios from 'axios'
 
 export const DashboardPage = () => {
   const navigate = useNavigate()
-  const { user, logout } = useAuthStore()
+  const { user, token, logout } = useAuthStore()
   const [meetingId, setMeetingId] = useState('')
   const [showJoinModal, setShowJoinModal] = useState(false)
+  const { data: meetings = [], isLoading: loading } = useQuery({
+    queryKey: ['meetings'],
+    queryFn: async () => {
+      const res = await axios.get('/api/meetings', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      return res.data
+    },
+    enabled: !!token
+  })
 
   const handleLogout = () => {
     logout()
     navigate('/login')
   }
 
-  const handleCreateMeeting = () => {
+  const handleCreateMeeting = async () => {
     const newMeetingId = Math.random().toString(36).substring(2, 9).toUpperCase()
-    navigate(`/meeting/${newMeetingId}`)
+    
+    try {
+      await axios.post('/api/meetings', {
+        title: 'Instant Meeting',
+        roomId: newMeetingId,
+        scheduledAt: new Date()
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      navigate(`/meeting/${newMeetingId}`)
+    } catch (error) {
+      console.error('Error creating meeting:', error)
+      alert('Failed to create meeting')
+    }
   }
 
   const handleJoinMeeting = () => {
@@ -35,7 +60,6 @@ export const DashboardPage = () => {
     day: 'numeric',
   })
 
-  const mockMeetingIds = ['WEEKLY1', 'DESIGN2', 'SPRINT3']
 
   return (
     <div className="min-h-screen bg-[#FAF9F7] text-[#1A1A1A]">
@@ -162,15 +186,17 @@ export const DashboardPage = () => {
 
         <div className="grid grid-cols-3 gap-4 mb-8">
           <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-            <div className="text-2xl font-semibold text-[#1A1A1A]">5</div>
-            <div className="text-xs text-[#6B6560] mt-1">Upcoming meetings</div>
+            <div className="text-2xl font-semibold text-[#1A1A1A]">{meetings.length}</div>
+            <div className="text-xs text-[#6B6560] mt-1">Total meetings</div>
           </div>
           <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-            <div className="text-2xl font-semibold text-[#1A1A1A]">12</div>
+            <div className="text-2xl font-semibold text-[#1A1A1A]">
+              {meetings.reduce((acc, m) => acc + (m.participants?.length || 1), 0)}
+            </div>
             <div className="text-xs text-[#6B6560] mt-1">Total participants</div>
           </div>
           <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-            <div className="text-2xl font-semibold text-[#1A1A1A]">8h</div>
+            <div className="text-2xl font-semibold text-[#1A1A1A]">0h</div>
             <div className="text-xs text-[#6B6560] mt-1">Hours this week</div>
           </div>
         </div>
@@ -180,32 +206,34 @@ export const DashboardPage = () => {
             Recent meetings
           </div>
           <div className="bg-white border border-[#E8E4DD] rounded-2xl overflow-hidden divide-y divide-[#E8E4DD]">
-            {[
-              { name: 'Weekly Sync', date: 'Today, 10:00 AM', participants: '4 people' },
-              { name: 'Design Review', date: 'Yesterday, 2:00 PM', participants: '6 people' },
-              { name: 'Sprint Planning', date: 'Mon, 9:00 AM', participants: '8 people' },
-            ].map((meeting, index) => (
-              <button
-                key={meeting.name}
-                type="button"
-                onClick={() => navigate(`/meeting/${mockMeetingIds[index]}/summary`)}
-                className="flex items-center justify-between px-5 py-4 hover:bg-[#F5F2EE] transition-colors cursor-pointer w-full text-left"
-              >
-                <div className="flex items-center">
-                  <Video size={18} className="text-[#6B6560] mr-3" />
-                  <div>
-                    <div className="text-sm font-medium text-[#1A1A1A]">{meeting.name}</div>
-                    <div className="text-xs text-[#6B6560] mt-1">{meeting.date}</div>
+            {loading ? (
+              <div className="p-5 text-center text-[#6B6560]"><Loader className="animate-spin inline-block mr-2" size={16}/>Loading meetings...</div>
+            ) : meetings.length === 0 ? (
+              <div className="p-5 text-center text-[#6B6560]">No recent meetings found.</div>
+            ) : (
+              meetings.map((meeting) => (
+                <button
+                  key={meeting._id}
+                  type="button"
+                  onClick={() => navigate(`/meeting/${meeting.roomId}/summary`)}
+                  className="flex items-center justify-between px-5 py-4 hover:bg-[#F5F2EE] transition-colors cursor-pointer w-full text-left"
+                >
+                  <div className="flex items-center">
+                    <Video size={18} className="text-[#6B6560] mr-3" />
+                    <div>
+                      <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
+                      <div className="text-xs text-[#6B6560] mt-1">{new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}</div>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center">
-                  <span className="bg-[#F5F2EE] text-[#6B6560] text-xs px-2.5 py-1 rounded-full">
-                    {meeting.participants}
-                  </span>
-                  <span className="ml-3 text-xs text-[#7C3AED] hover:underline">View summary</span>
-                </div>
-              </button>
-            ))}
+                  <div className="flex items-center">
+                    <span className="bg-[#F5F2EE] text-[#6B6560] text-xs px-2.5 py-1 rounded-full">
+                      {meeting.participants?.length || 1} people
+                    </span>
+                    <span className="ml-3 text-xs text-[#7C3AED] hover:underline">View summary</span>
+                  </div>
+                </button>
+              ))
+            )}
           </div>
         </section>
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useMeetingStore } from '../store/meetingStore'
+import { useAuthStore } from '../store/authStore'
 import {
   Mic,
   MicOff,
@@ -21,11 +22,14 @@ import {
   Hand,
   Smile,
   X,
+  Copy,
+  Check,
 } from 'lucide-react'
+import { io } from 'socket.io-client'
 
-const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raisedHand, localStream, videoRef }) => {
-  const tileRef = tile.isLocal ? videoRef : null
+const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raisedHand, localStream, remoteStreams, videoRef }) => {
   const internalRef = useRef(null)
+  const tileRef = tile.isLocal ? videoRef : internalRef
 
   // Re-attach video when tile becomes visible
   useEffect(() => {
@@ -38,6 +42,13 @@ const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raise
       return () => clearTimeout(timer)
     }
   }, [tile.isLocal, localStream, tileRef])
+
+  // Attach remote stream
+  useEffect(() => {
+    if (!tile.isLocal && tileRef.current && remoteStreams && remoteStreams[tile.id]) {
+      tileRef.current.srcObject = remoteStreams[tile.id]
+    }
+  }, [tile.isLocal, tile.id, remoteStreams, tileRef])
 
   return (
     <div
@@ -61,6 +72,15 @@ const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raise
                 </div>
               </div>
             )}
+          </>
+        ) : remoteStreams && remoteStreams[tile.id] ? (
+          <>
+            <video
+              ref={tileRef}
+              autoPlay
+              playsInline
+              className="w-full h-full object-cover"
+            />
           </>
         ) : (
           <div className="w-full h-full bg-[#2C2C2E] flex flex-col items-center justify-center">
@@ -124,9 +144,11 @@ export const VideoRoom = () => {
   const [reaction, setReaction] = useState(null)
   const [showReactions, setShowReactions] = useState(false)
   const [pinnedId, setPinnedId] = useState(null)
+  const [copied, setCopied] = useState(false)
 
   const {
     localStream,
+    remoteStreams,
     isAudioEnabled,
     isVideoEnabled,
     isScreenSharing,
@@ -136,9 +158,81 @@ export const VideoRoom = () => {
     startScreenShare,
     stopScreenShare,
     initializeMedia,
+    handleUserConnected,
+    handleOffer,
+    handleAnswer,
+    handleIceCandidate,
+    handleUserDisconnected
   } = useWebRTC()
 
   const { participantName, participants } = useMeetingStore()
+  const { user } = useAuthStore()
+
+  // Socket.io connection
+  const socketRef = useRef(null)
+  const [remoteParticipants, setRemoteParticipants] = useState([])
+
+  useEffect(() => {
+    // Initialize socket
+    socketRef.current = io('/', { path: '/socket.io' }) // Vite proxy will handle this
+    
+    socketRef.current.on('connect', () => {
+      socketRef.current.emit('join-room', meetingId, {
+        id: user?._id || user?.id || null,
+        name: participantName || user?.name || 'Guest',
+        avatar: participantName?.charAt(0)?.toUpperCase() || '?'
+      })
+    })
+
+    socketRef.current.on('chat-message', (msg) => {
+      setMessages((prev) => [...prev, {
+        id: msg._id,
+        sender: msg.sender?.name || 'Unknown',
+        text: msg.text,
+        time: new Date(msg.createdAt).toLocaleTimeString(),
+        isOwn: msg.sender?._id === user?.id
+      }])
+      if (!showChat) setHasUnread(true)
+    })
+
+    socketRef.current.on('user-connected', (socketId, userObj) => {
+      console.log('User connected:', socketId, userObj)
+      setRemoteParticipants(prev => {
+        if (!prev.find(p => p.id === socketId)) {
+          return [...prev, { id: socketId, name: userObj?.name || 'Guest', avatar: userObj?.avatar || '?', isAudio: true, isVideo: true }]
+        }
+        return prev;
+      });
+      handleUserConnected(socketId, socketRef)
+    })
+
+    socketRef.current.on('webrtc-offer', (offer, senderSocketId, userObj) => {
+      setRemoteParticipants(prev => {
+        if (!prev.find(p => p.id === senderSocketId)) {
+          return [...prev, { id: senderSocketId, name: userObj?.name || 'Guest', avatar: userObj?.avatar || '?', isAudio: true, isVideo: true }]
+        }
+        return prev;
+      });
+      handleOffer(offer, senderSocketId, socketRef)
+    })
+
+    socketRef.current.on('webrtc-answer', (answer, senderSocketId) => {
+      handleAnswer(answer, senderSocketId)
+    })
+
+    socketRef.current.on('ice-candidate', (candidate, senderSocketId) => {
+      handleIceCandidate(candidate, senderSocketId)
+    })
+
+    socketRef.current.on('user-disconnected', (socketId) => {
+      handleUserDisconnected(socketId)
+      setRemoteParticipants(prev => prev.filter(p => p.id !== socketId))
+    })
+
+    return () => {
+      if (socketRef.current) socketRef.current.disconnect()
+    }
+  }, [meetingId, user])
 
   // Timer
   useEffect(() => {
@@ -233,17 +327,14 @@ export const VideoRoom = () => {
   }
 
   const handleSendMessage = () => {
-    if (!chatInput.trim()) return
+    if (!chatInput.trim() || !socketRef.current) return
 
-    const newMessage = {
-      id: Date.now(),
-      sender: participantName,
-      text: chatInput.trim(),
-      time: new Date().toLocaleTimeString(),
-      isOwn: true,
-    }
+    socketRef.current.emit('chat-message', {
+      roomId: meetingId,
+      sender: user?.id,
+      text: chatInput.trim()
+    })
 
-    setMessages((prev) => [...prev, newMessage])
     setChatInput('')
   }
 
@@ -253,24 +344,17 @@ export const VideoRoom = () => {
     }
   }, [showChat])
 
-  // Mock participants for demo
-  const mockParticipants = [
-    { id: '2', name: 'Alice Johnson', avatar: 'AJ', isAudio: true, isVideo: true },
-    { id: '3', name: 'Bob Smith', avatar: 'BS', isAudio: false, isVideo: true },
-    { id: '4', name: 'Carol White', avatar: 'CW', isAudio: true, isVideo: false },
-    { id: '5', name: 'David Lee', avatar: 'DL', isAudio: true, isVideo: true },
-    { id: '6', name: 'Emma Davis', avatar: 'ED', isAudio: false, isVideo: true },
-    { id: '7', name: 'Frank Wilson', avatar: 'FW', isAudio: true, isVideo: true },
-    { id: '8', name: 'Grace Kim', avatar: 'GK', isAudio: true, isVideo: false },
-    { id: '9', name: 'Henry Brown', avatar: 'HB', isAudio: false, isVideo: true },
-    { id: '10', name: 'Iris Chen', avatar: 'IC', isAudio: true, isVideo: true },
-    { id: '11', name: 'James Park', avatar: 'JP', isAudio: true, isVideo: true },
-    { id: '12', name: 'Karen White', avatar: 'KW', isAudio: false, isVideo: false },
-  ]
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(window.location.href)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+
 
   const allParticipants = [
     { id: '1', name: participantName, isHost: true },
-    ...mockParticipants,
+    ...remoteParticipants,
   ]
 
   const layouts = [
@@ -288,7 +372,7 @@ export const VideoRoom = () => {
       isAudio: isAudioEnabled,
       isVideo: isVideoEnabled,
     },
-    ...mockParticipants.map((p) => ({ ...p, isLocal: false })),
+    ...remoteParticipants.map((p) => ({ ...p, isLocal: false })),
   ]
 
   // Calculate columns based on participant count
@@ -325,6 +409,7 @@ export const VideoRoom = () => {
                     reaction={reaction}
                     raisedHand={raisedHand}
                     localStream={localStream}
+                    remoteStreams={remoteStreams}
                     videoRef={videoRef}
                   />
                 </div>
@@ -348,6 +433,7 @@ export const VideoRoom = () => {
               reaction={reaction}
               raisedHand={raisedHand}
               localStream={localStream}
+              remoteStreams={remoteStreams}
               videoRef={videoRef}
             />
           </div>
@@ -362,6 +448,7 @@ export const VideoRoom = () => {
                     reaction={reaction}
                     raisedHand={raisedHand}
                     localStream={localStream}
+                    remoteStreams={remoteStreams}
                     videoRef={videoRef}
                   />
                 </div>
@@ -385,6 +472,7 @@ export const VideoRoom = () => {
               reaction={reaction}
               raisedHand={raisedHand}
               localStream={localStream}
+              remoteStreams={remoteStreams}
               videoRef={videoRef}
             />
           </div>
@@ -399,6 +487,7 @@ export const VideoRoom = () => {
                     reaction={reaction}
                     raisedHand={raisedHand}
                     localStream={localStream}
+                    remoteStreams={remoteStreams}
                     videoRef={videoRef}
                   />
                 </div>
@@ -428,6 +517,7 @@ export const VideoRoom = () => {
                 reaction={reaction}
                 raisedHand={raisedHand}
                 localStream={localStream}
+                remoteStreams={remoteStreams}
                 videoRef={videoRef}
               />
             </div>
@@ -454,7 +544,16 @@ export const VideoRoom = () => {
           <span className="bg-red-500/20 text-red-400 border border-red-500/30 text-xs px-2.5 py-1 rounded-full font-semibold">
             LIVE
           </span>
-          <span className="text-xs text-white/40 font-mono">{meetingId}</span>
+          <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-full p-1 pl-3">
+            <span className="text-xs text-white/40 font-mono">{meetingId}</span>
+            <button
+              onClick={handleCopyLink}
+              className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/20 transition"
+              title="Copy invite link"
+            >
+              {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+            </button>
+          </div>
 
           <button
             onClick={() => setShowMoreMenu((prev) => !prev)}
