@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useWebRTC } from '../hooks/useWebRTC'
 import { useMeetingStore } from '../store/meetingStore'
-import { Video, Mic, Volume2, Volume, ArrowLeft, Play, Copy, Check } from 'lucide-react'
+import { Video, Mic, MicOff, VideoOff, ArrowLeft, Play, Copy, Check } from 'lucide-react'
 import axios from 'axios'
 
 export const MeetingLobby = () => {
@@ -15,75 +14,87 @@ export const MeetingLobby = () => {
   const [selectedAudio, setSelectedAudio] = useState('')
   const [selectedVideo, setSelectedVideo] = useState('')
   const [copied, setCopied] = useState(false)
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true)
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
+  const [error, setError] = useState(null)
 
   const participantInitial = participantName?.trim()?.charAt(0)?.toUpperCase() || 'U'
-
   const videoRef = useRef(null)
-
-  const {
-    localStream,
-    isAudioEnabled,
-    isVideoEnabled,
-    error,
-    initializeMedia,
-    toggleAudio,
-    toggleVideo,
-    getDevices,
-    switchDevice,
-  } = useWebRTC()
+  const previewStreamRef = useRef(null)
 
   const { setMeetingId, setParticipantName: setStoreName } = useMeetingStore()
 
-  // Initialize media on mount
+  // Initialize preview media on mount
   useEffect(() => {
     const init = async () => {
       try {
-        // Validate room exists before starting camera
+        // Validate room exists
         const token = localStorage.getItem('auth-storage') ? JSON.parse(localStorage.getItem('auth-storage')).state.token : null
         await axios.get(`/api/meetings/room/${meetingId}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         })
 
-        await initializeMedia()
-        const devices = await getDevices()
-        setAudioDevices(devices.audioDevices)
-        setVideoDevices(devices.videoDevices)
-        if (devices.audioDevices.length > 0) {
-          setSelectedAudio(devices.audioDevices[0].deviceId)
+        // Get preview stream
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+          })
+          previewStreamRef.current = stream
+          if (videoRef.current) videoRef.current.srcObject = stream
+        } catch (mediaErr) {
+          setError(mediaErr.name === 'NotAllowedError'
+            ? 'Camera/microphone permission denied'
+            : 'Failed to access media devices')
         }
-        if (devices.videoDevices.length > 0) {
-          setSelectedVideo(devices.videoDevices[0].deviceId)
-        }
+
+        // Enumerate devices
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const audio = devices.filter(d => d.kind === 'audioinput')
+        const video = devices.filter(d => d.kind === 'videoinput')
+        setAudioDevices(audio)
+        setVideoDevices(video)
+        if (audio.length > 0) setSelectedAudio(audio[0].deviceId)
+        if (video.length > 0) setSelectedVideo(video[0].deviceId)
         setLoading(false)
       } catch (err) {
         if (err.response && err.response.status === 404) {
           alert('Meeting not found! Please check the link.')
           navigate('/dashboard')
         } else {
-          // It might be a network error or missing token for public rooms, proceed anyway for now
           setLoading(false)
         }
       }
     }
-
     init()
+
+    // Cleanup: stop preview stream on unmount (but this does NOT affect VideoRoom's stream)
+    return () => {
+      if (previewStreamRef.current) {
+        previewStreamRef.current.getTracks().forEach(t => t.stop())
+        previewStreamRef.current = null
+      }
+    }
   }, [])
 
   // Connect video stream to ref
   useEffect(() => {
-    if (videoRef.current && localStream) {
-      videoRef.current.srcObject = localStream
+    if (videoRef.current && previewStreamRef.current) {
+      videoRef.current.srcObject = previewStreamRef.current
     }
-  }, [localStream])
+  }, [isVideoEnabled])
 
-  // Handle device switch
-  const handleDeviceSwitch = async (deviceId, kind) => {
-    if (kind === 'audio') {
-      setSelectedAudio(deviceId)
-      await switchDevice(deviceId, 'audioinput')
-    } else {
-      setSelectedVideo(deviceId)
-      await switchDevice(deviceId, 'videoinput')
+  const toggleAudio = () => {
+    if (previewStreamRef.current) {
+      previewStreamRef.current.getAudioTracks().forEach(t => { t.enabled = !t.enabled })
+      setIsAudioEnabled(prev => !prev)
+    }
+  }
+
+  const toggleVideo = () => {
+    if (previewStreamRef.current) {
+      previewStreamRef.current.getVideoTracks().forEach(t => { t.enabled = !t.enabled })
+      setIsVideoEnabled(prev => !prev)
     }
   }
 
@@ -92,7 +103,11 @@ export const MeetingLobby = () => {
       alert('Please enter your name first')
       return
     }
-
+    // Stop the preview stream before navigating — VideoRoom will acquire its own
+    if (previewStreamRef.current) {
+      previewStreamRef.current.getTracks().forEach(t => t.stop())
+      previewStreamRef.current = null
+    }
     setMeetingId(meetingId)
     setStoreName(participantName)
     navigate(`/meeting/${meetingId}/room`)
@@ -193,7 +208,7 @@ export const MeetingLobby = () => {
                       : 'bg-red-500/80 hover:bg-red-600 text-white'
                   }`}
                 >
-                  {isAudioEnabled ? <Mic size={20} /> : <Volume size={20} />}
+                  {isAudioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
                 </button>
                 <button
                   onClick={toggleVideo}
@@ -203,7 +218,7 @@ export const MeetingLobby = () => {
                       : 'bg-red-500/80 hover:bg-red-600 text-white'
                   }`}
                 >
-                  <Video size={20} />
+                  {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
                 </button>
               </div>
             </div>

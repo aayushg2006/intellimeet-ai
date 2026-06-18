@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useMeetingStore } from '../store/meetingStore'
 import { useAuthStore } from '../store/authStore'
+import axios from 'axios'
 import {
   Mic,
   MicOff,
@@ -27,7 +28,7 @@ import {
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
-const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raisedHand, localStream, remoteStreams, videoRef }) => {
+const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, localStream, remoteStreams, videoRef }) => {
   const internalRef = useRef(null)
   const tileRef = tile.isLocal ? videoRef : internalRef
 
@@ -79,7 +80,7 @@ const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raise
               ref={tileRef}
               autoPlay
               playsInline
-              className="w-full h-full object-cover"
+              className={`w-full h-full ${tile.isScreenShare ? 'object-contain bg-black' : 'object-cover'}`}
             />
           </>
         ) : (
@@ -92,13 +93,13 @@ const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, reaction, raise
         )}
       </div>
 
-      {tile.isLocal && reaction && (
+      {tile.reaction && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl animate-bounce pointer-events-none">
-          {reaction}
+          {tile.reaction}
         </div>
       )}
 
-      {tile.isLocal && raisedHand && (
+      {tile.raisedHand && (
         <div className="absolute top-3 left-3 bg-yellow-400 text-black text-xs px-2 py-1 rounded-full font-semibold flex items-center gap-1">
           ✋ Hand raised
         </div>
@@ -158,6 +159,7 @@ export const VideoRoom = () => {
     startScreenShare,
     stopScreenShare,
     initializeMedia,
+    stopMedia,
     handleUserConnected,
     handleOffer,
     handleAnswer,
@@ -165,92 +167,214 @@ export const VideoRoom = () => {
     handleUserDisconnected
   } = useWebRTC()
 
-  const { participantName, participants } = useMeetingStore()
+  const { participantName } = useMeetingStore()
   const { user } = useAuthStore()
+
+  // Normalize user ID once
+  const userId = user?._id || user?.id || null
+  const displayName = participantName || user?.name || 'Guest'
 
   // Socket.io connection
   const socketRef = useRef(null)
+  const [meetingInfo, setMeetingInfo] = useState(null)
+  const [isHost, setIsHost] = useState(false)
+  const isHostRef = useRef(false) // Stable ref for socket listeners
+  const [waitingForHost, setWaitingForHost] = useState(false)
+  const [joinRequests, setJoinRequests] = useState([])
   const [remoteParticipants, setRemoteParticipants] = useState([])
+  const [remoteReactions, setRemoteReactions] = useState({}) // socketId -> emoji
+  const [remoteHands, setRemoteHands] = useState({}) // socketId -> boolean
+  const [remoteScreenSharer, setRemoteScreenSharer] = useState(null) // socketId of remote screen sharer
 
+  // Keep isHostRef in sync
   useEffect(() => {
-    // Initialize socket
-    socketRef.current = io('/', { path: '/socket.io' }) // Vite proxy will handle this
-    
-    socketRef.current.on('connect', () => {
-      socketRef.current.emit('join-room', meetingId, {
-        id: user?._id || user?.id || null,
-        name: participantName || user?.name || 'Guest',
-        avatar: participantName?.charAt(0)?.toUpperCase() || '?'
+    isHostRef.current = isHost
+  }, [isHost])
+
+  // ─── INITIALIZE MEDIA ON MOUNT ───
+  useEffect(() => {
+    initializeMedia()
+  }, [initializeMedia])
+
+  // ─── SINGLE STABLE SOCKET LIFECYCLE ───
+  useEffect(() => {
+    let cancelled = false
+
+    const setup = async () => {
+      // 1. Fetch meeting info to determine host
+      let meetingData = null
+      try {
+        const tokenStore = localStorage.getItem('auth-storage')
+        const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
+        const res = await axios.get(`/api/meetings/room/${meetingId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        })
+        meetingData = res.data
+      } catch (err) {
+        console.error('[VideoRoom] Error fetching meeting:', err)
+        if (err.response?.status === 404) {
+          alert('Meeting not found!')
+          navigate('/dashboard')
+          return
+        }
+      }
+
+      if (cancelled || !meetingData) return
+
+      setMeetingInfo(meetingData)
+
+      // 2. Determine host status
+      const hostId = meetingData.host?._id || meetingData.host
+      const currentIsHost = !!(userId && hostId && String(hostId) === String(userId))
+      setIsHost(currentIsHost)
+      isHostRef.current = currentIsHost
+
+      if (!currentIsHost) {
+        setWaitingForHost(true)
+      }
+
+      // 3. Connect socket
+      const socketUrl = import.meta.env.DEV ? 'http://localhost:5000' : '/'
+      const socket = io(socketUrl, { path: '/socket.io' })
+      socketRef.current = socket
+
+      socket.on('connect', () => {
+        console.log('[VideoRoom] Socket connected:', socket.id)
+        socket.emit('join-room', meetingId, {
+          id: userId,
+          name: displayName,
+          avatar: displayName?.charAt(0)?.toUpperCase() || '?'
+        })
       })
-    })
 
-    socketRef.current.on('chat-message', (msg) => {
-      setMessages((prev) => [...prev, {
-        id: msg._id,
-        sender: msg.sender?.name || 'Unknown',
-        text: msg.text,
-        time: new Date(msg.createdAt).toLocaleTimeString(),
-        isOwn: msg.sender?._id === user?.id
-      }])
-      if (!showChat) setHasUnread(true)
-    })
+      socket.on('room-joined', (data) => {
+        console.log('[VideoRoom] Room joined:', data)
+      })
 
-    socketRef.current.on('user-connected', (socketId, userObj) => {
-      console.log('User connected:', socketId, userObj)
-      setRemoteParticipants(prev => {
-        if (!prev.find(p => p.id === socketId)) {
-          return [...prev, { id: socketId, name: userObj?.name || 'Guest', avatar: userObj?.avatar || '?', isAudio: true, isVideo: true }]
+      socket.on('room-error', (msg) => {
+        alert(msg)
+        navigate('/dashboard')
+      })
+
+      // Host receives join requests
+      socket.on('join-request', (data) => {
+        // Use ref so this listener always has the latest isHost value
+        if (isHostRef.current) {
+          console.log('[VideoRoom] Join request from:', data.userObj?.name)
+          setJoinRequests((prev) => {
+            if (prev.find((r) => r.socketId === data.socketId)) return prev
+            return [...prev, data]
+          })
         }
-        return prev;
-      });
-      handleUserConnected(socketId, socketRef)
-    })
+      })
 
-    socketRef.current.on('webrtc-offer', (offer, senderSocketId, userObj) => {
-      setRemoteParticipants(prev => {
-        if (!prev.find(p => p.id === senderSocketId)) {
+      // Guest accepted
+      socket.on('join-accepted', () => {
+        console.log('[VideoRoom] Join accepted!')
+        setWaitingForHost(false)
+      })
+
+      // Guest rejected
+      socket.on('join-rejected', () => {
+        alert('The host declined your request to join.')
+        navigate('/dashboard')
+      })
+
+      // Chat messages
+      socket.on('chat-message', (msg) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: msg._id,
+            sender: msg.sender?.name || 'Unknown',
+            text: msg.text,
+            time: new Date(msg.createdAt).toLocaleTimeString(),
+            isOwn: String(msg.sender?._id) === String(userId),
+          },
+        ])
+        setHasUnread(true)
+      })
+
+      // WebRTC events
+      socket.on('user-connected', (remoteSocketId, userObj) => {
+        console.log('[VideoRoom] user-connected:', remoteSocketId, userObj?.name)
+        setRemoteParticipants((prev) => {
+          if (prev.find((p) => p.id === remoteSocketId)) return prev
+          return [...prev, { id: remoteSocketId, name: userObj?.name || 'Guest', avatar: userObj?.avatar || '?', isAudio: true, isVideo: true }]
+        })
+        handleUserConnected(remoteSocketId, socketRef)
+      })
+
+      socket.on('webrtc-offer', (offer, senderSocketId, userObj) => {
+        console.log('[VideoRoom] webrtc-offer from:', senderSocketId)
+        setRemoteParticipants((prev) => {
+          if (prev.find((p) => p.id === senderSocketId)) return prev
           return [...prev, { id: senderSocketId, name: userObj?.name || 'Guest', avatar: userObj?.avatar || '?', isAudio: true, isVideo: true }]
-        }
-        return prev;
-      });
-      handleOffer(offer, senderSocketId, socketRef)
-    })
+        })
+        handleOffer(offer, senderSocketId, socketRef)
+      })
 
-    socketRef.current.on('webrtc-answer', (answer, senderSocketId) => {
-      handleAnswer(answer, senderSocketId)
-    })
+      socket.on('webrtc-answer', (answer, senderSocketId) => {
+        handleAnswer(answer, senderSocketId)
+      })
 
-    socketRef.current.on('ice-candidate', (candidate, senderSocketId) => {
-      handleIceCandidate(candidate, senderSocketId)
-    })
+      socket.on('ice-candidate', (candidate, senderSocketId) => {
+        handleIceCandidate(candidate, senderSocketId)
+      })
 
-    socketRef.current.on('user-disconnected', (socketId) => {
-      handleUserDisconnected(socketId)
-      setRemoteParticipants(prev => prev.filter(p => p.id !== socketId))
-    })
+      socket.on('user-disconnected', (remoteSocketId) => {
+        console.log('[VideoRoom] user-disconnected:', remoteSocketId)
+        handleUserDisconnected(remoteSocketId)
+        setRemoteParticipants((prev) => prev.filter((p) => p.id !== remoteSocketId))
+        setRemoteReactions((prev) => { const u = { ...prev }; delete u[remoteSocketId]; return u })
+        setRemoteHands((prev) => { const u = { ...prev }; delete u[remoteSocketId]; return u })
+        if (remoteScreenSharer === remoteSocketId) setRemoteScreenSharer(null)
+      })
+
+      // ─── REACTIONS / HAND / SCREEN SHARE from remote ───
+      socket.on('user-reaction', (data) => {
+        setRemoteReactions((prev) => ({ ...prev, [data.socketId]: data.emoji }))
+        setTimeout(() => {
+          setRemoteReactions((prev) => { const u = { ...prev }; delete u[data.socketId]; return u })
+        }, 3000)
+      })
+
+      socket.on('user-hand', (data) => {
+        setRemoteHands((prev) => ({ ...prev, [data.socketId]: data.raised }))
+      })
+
+      socket.on('user-screen-share', (data) => {
+        setRemoteScreenSharer(data.sharing ? data.socketId : null)
+      })
+    }
+
+    setup()
 
     return () => {
-      if (socketRef.current) socketRef.current.disconnect()
+      cancelled = true
+      if (socketRef.current) {
+        socketRef.current.disconnect()
+        socketRef.current = null
+      }
     }
-  }, [meetingId, user])
+  }, [meetingId]) // Only depends on meetingId — stable!
 
-  // Timer
+  // ─── TIMER ───
   useEffect(() => {
     const interval = setInterval(() => {
       setElapsedTime((prev) => prev + 1)
     }, 1000)
-
     return () => clearInterval(interval)
   }, [])
 
-  // Connect video stream
+  // ─── ATTACH LOCAL VIDEO ───
   useEffect(() => {
     if (videoRef.current && localStream) {
       videoRef.current.srcObject = localStream
     }
   }, [localStream, layoutMode])
 
-  // Re-attach video when layout or pinnedId changes
+  // Re-attach video when layout changes (React may unmount/remount video elements)
   useEffect(() => {
     if (videoRef.current && localStream) {
       const timer = setTimeout(() => {
@@ -262,37 +386,19 @@ export const VideoRoom = () => {
     }
   }, [layoutMode, pinnedId, isScreenSharing, localStream])
 
-  useEffect(() => {
-    const init = async () => {
-      await initializeMedia()
-    }
-    init()
-    return () => {
-      // cleanup handled by useWebRTC hook
-    }
-  }, [])
-
+  // ─── SCREEN SHARE VIDEO ───
   useEffect(() => {
     if (isScreenSharing && screenVideoRef.current && screenStream.current) {
       screenVideoRef.current.srcObject = screenStream.current
     } else if (!isScreenSharing && screenVideoRef.current) {
       screenVideoRef.current.srcObject = null
     }
-  }, [isScreenSharing, screenStream.current])
-
-  useEffect(() => {
-    if (isScreenSharing) {
-      const timer = setTimeout(() => {
-        if (screenVideoRef.current && screenStream.current) {
-          screenVideoRef.current.srcObject = screenStream.current
-        }
-      }, 100)
-      return () => clearTimeout(timer)
-    }
   }, [isScreenSharing])
 
+  // ─── HANDLERS ───
   const handleEndCall = () => {
     if (confirm('End the meeting?')) {
+      stopMedia()
       navigate(`/meeting/${meetingId}/summary`)
     }
   }
@@ -310,6 +416,7 @@ export const VideoRoom = () => {
   const sendReaction = (emoji) => {
     setReaction(emoji)
     setShowReactions(false)
+    if (socketRef.current) socketRef.current.emit('send-reaction', emoji)
     setTimeout(() => setReaction(null), 3000)
   }
 
@@ -317,31 +424,24 @@ export const VideoRoom = () => {
     const hours = Math.floor(seconds / 3600)
     const minutes = Math.floor((seconds % 3600) / 60)
     const secs = seconds % 60
-
     if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs
-        .toString()
-        .padStart(2, '0')}`
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
     }
     return `${minutes}:${secs.toString().padStart(2, '0')}`
   }
 
   const handleSendMessage = () => {
     if (!chatInput.trim() || !socketRef.current) return
-
     socketRef.current.emit('chat-message', {
       roomId: meetingId,
-      sender: user?.id,
-      text: chatInput.trim()
+      sender: userId,
+      text: chatInput.trim(),
     })
-
     setChatInput('')
   }
 
   useEffect(() => {
-    if (showChat) {
-      setHasUnread(false)
-    }
+    if (showChat) setHasUnread(false)
   }, [showChat])
 
   const handleCopyLink = () => {
@@ -350,11 +450,20 @@ export const VideoRoom = () => {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const handleAcceptRequest = (request) => {
+    socketRef.current.emit('accept-join', request.socketId, meetingId, request.userObj)
+    setJoinRequests((prev) => prev.filter((r) => r.socketId !== request.socketId))
+  }
 
+  const handleRejectRequest = (request) => {
+    socketRef.current.emit('reject-join', request.socketId, meetingId)
+    setJoinRequests((prev) => prev.filter((r) => r.socketId !== request.socketId))
+  }
 
+  // ─── COMPUTED ───
   const allParticipants = [
-    { id: '1', name: participantName, isHost: true },
-    ...remoteParticipants,
+    { id: '1', name: displayName, isHost },
+    ...remoteParticipants.map((p) => ({ ...p, isHost: false })),
   ]
 
   const layouts = [
@@ -367,20 +476,36 @@ export const VideoRoom = () => {
   const allTiles = [
     {
       id: '1',
-      name: participantName || 'You',
+      name: displayName || 'You',
       isLocal: true,
       isAudio: isAudioEnabled,
       isVideo: isVideoEnabled,
+      reaction: reaction,
+      raisedHand: raisedHand,
     },
-    ...remoteParticipants.map((p) => ({ ...p, isLocal: false })),
+    ...remoteParticipants.map((p) => ({
+      ...p,
+      isLocal: false,
+      reaction: remoteReactions[p.id] || null,
+      raisedHand: remoteHands[p.id] || false,
+    })),
   ]
 
-  // Calculate columns based on participant count
   const getGridColumns = () => {
     if (allTiles.length <= 2) return 1
     if (allTiles.length <= 4) return 2
     if (allTiles.length <= 9) return 3
     return 4
+  }
+
+  if (waitingForHost) {
+    return (
+      <div className="h-screen bg-[#111113] text-white flex flex-col items-center justify-center">
+        <div className="w-16 h-16 rounded-full border-4 border-[#7C3AED] border-t-transparent animate-spin mb-6" />
+        <h2 className="text-2xl font-semibold mb-2">Waiting for the host...</h2>
+        <p className="text-white/50">The meeting host will let you in soon.</p>
+      </div>
+    )
   }
 
   // Render different layouts based on mode
@@ -406,8 +531,52 @@ export const VideoRoom = () => {
                     tile={tile}
                     pinnedId={pinnedId}
                     setPinnedId={setPinnedId}
-                    reaction={reaction}
-                    raisedHand={raisedHand}
+                    localStream={localStream}
+                    remoteStreams={remoteStreams}
+                    videoRef={videoRef}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Remote screen sharing layout — show remote sharer's video tile as main content
+    if (remoteScreenSharer) {
+      const sharerTile = tiles.find((t) => t.id === remoteScreenSharer)
+      const otherTiles = tiles.filter((t) => t.id !== remoteScreenSharer)
+      const sharerName = sharerTile?.name || 'Participant'
+
+      return (
+        <div className={`h-full flex ${GAP}`}>
+          {/* Main: remote screen share (their video track now contains screen content) */}
+          <div className="flex-1 relative bg-[#1C1C1E] rounded-2xl overflow-hidden">
+            {sharerTile && (
+              <VideoTile
+                tile={{ ...sharerTile, isVideo: true, isScreenShare: true }}
+                large
+                pinnedId={pinnedId}
+                setPinnedId={setPinnedId}
+                localStream={localStream}
+                remoteStreams={remoteStreams}
+                videoRef={videoRef}
+              />
+            )}
+            <div className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded-lg z-10">
+              <p className="text-white text-xs">{sharerName}&apos;s Screen</p>
+            </div>
+          </div>
+          {/* Sidebar: all other tiles */}
+          <div className="w-56 flex flex-col overflow-y-auto">
+            <div className={`flex flex-col ${GAP}`}>
+              {otherTiles.map((tile) => (
+                <div key={tile.id} className="h-40 flex-shrink-0 aspect-video">
+                  <VideoTile
+                    tile={tile}
+                    pinnedId={pinnedId}
+                    setPinnedId={setPinnedId}
                     localStream={localStream}
                     remoteStreams={remoteStreams}
                     videoRef={videoRef}
@@ -430,8 +599,6 @@ export const VideoRoom = () => {
               large
               pinnedId={pinnedId}
               setPinnedId={setPinnedId}
-              reaction={reaction}
-              raisedHand={raisedHand}
               localStream={localStream}
               remoteStreams={remoteStreams}
               videoRef={videoRef}
@@ -445,8 +612,6 @@ export const VideoRoom = () => {
                     tile={tile}
                     pinnedId={pinnedId}
                     setPinnedId={setPinnedId}
-                    reaction={reaction}
-                    raisedHand={raisedHand}
                     localStream={localStream}
                     remoteStreams={remoteStreams}
                     videoRef={videoRef}
@@ -469,8 +634,6 @@ export const VideoRoom = () => {
               large
               pinnedId={pinnedId}
               setPinnedId={setPinnedId}
-              reaction={reaction}
-              raisedHand={raisedHand}
               localStream={localStream}
               remoteStreams={remoteStreams}
               videoRef={videoRef}
@@ -484,8 +647,6 @@ export const VideoRoom = () => {
                     tile={tile}
                     pinnedId={pinnedId}
                     setPinnedId={setPinnedId}
-                    reaction={reaction}
-                    raisedHand={raisedHand}
                     localStream={localStream}
                     remoteStreams={remoteStreams}
                     videoRef={videoRef}
@@ -514,8 +675,6 @@ export const VideoRoom = () => {
                 tile={tile}
                 pinnedId={pinnedId}
                 setPinnedId={setPinnedId}
-                reaction={reaction}
-                raisedHand={raisedHand}
                 localStream={localStream}
                 remoteStreams={remoteStreams}
                 videoRef={videoRef}
@@ -528,7 +687,7 @@ export const VideoRoom = () => {
   }
 
   return (
-    <div className="h-screen bg-[#111113] text-white flex flex-col overflow-hidden">
+    <div className="h-screen bg-[#111113] text-white flex flex-col overflow-hidden relative">
       <div className="px-5 py-3 flex items-center justify-between flex-shrink-0 bg-[#111113] relative">
         <div className="flex items-center gap-3">
           <span className="text-[#7C3AED]">●</span>
@@ -672,6 +831,22 @@ export const VideoRoom = () => {
         )}
       </div>
 
+      {/* Host admit/deny requests overlay */}
+      {isHost && joinRequests.length > 0 && (
+        <div className="absolute bottom-24 right-6 flex flex-col gap-3 z-50">
+          {joinRequests.map(req => (
+            <div key={req.socketId} className="bg-[#1C1C1E] border border-[#7C3AED]/30 rounded-2xl p-4 shadow-2xl flex flex-col gap-2 w-72 animate-in slide-in-from-right-8">
+              <p className="text-sm text-white"><span className="font-semibold text-white">{req.userObj?.name || 'Guest'}</span> wants to join.</p>
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => handleRejectRequest(req)} className="flex-1 px-3 py-2 rounded-xl bg-white/5 hover:bg-red-500/20 hover:text-red-400 text-white text-xs font-semibold transition">Deny</button>
+                <button onClick={() => handleAcceptRequest(req)} className="flex-1 px-3 py-2 rounded-xl bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-xs font-semibold transition">Admit</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Bottom Toolbar */}
       <div className="px-6 py-4 flex items-center justify-center gap-2 flex-shrink-0 bg-[#111113]">
         <button
           onClick={toggleAudio}
@@ -696,7 +871,15 @@ export const VideoRoom = () => {
         </button>
 
         <button
-          onClick={isScreenSharing ? stopScreenShare : startScreenShare}
+          onClick={async () => {
+            if (isScreenSharing) {
+              stopScreenShare(socketRef)
+              if (socketRef.current) socketRef.current.emit('screen-share-stopped')
+            } else {
+              const stream = await startScreenShare(socketRef)
+              if (stream && socketRef.current) socketRef.current.emit('screen-share-started')
+            }
+          }}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
             isScreenSharing ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'
           }`}
@@ -730,7 +913,11 @@ export const VideoRoom = () => {
         </div>
 
         <button
-          onClick={() => setRaisedHand((prev) => !prev)}
+          onClick={() => {
+            const newVal = !raisedHand
+            setRaisedHand(newVal)
+            if (socketRef.current) socketRef.current.emit('raise-hand', newVal)
+          }}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
             raisedHand ? 'bg-yellow-400 text-black hover:bg-yellow-300' : 'bg-white/10 text-white hover:bg-white/20'
           }`}
@@ -796,30 +983,23 @@ export const VideoRoom = () => {
                       setShowLayoutModal(false)
                       setPinnedId(null)
                     }}
-                    className={`relative cursor-pointer rounded-xl border-2 p-4 text-left transition-all ${
-                      active
-                        ? 'border-[#7C3AED] bg-[#7C3AED]/10'
-                        : 'border-white/10 bg-white/5 hover:border-white/30'
+                    className={`p-3 rounded-xl text-left transition ${
+                      active ? 'bg-[#7C3AED]/20 border border-[#7C3AED] ring-1 ring-[#7C3AED]' : 'bg-white/5 border border-white/5 hover:bg-white/10'
                     }`}
-                    type="button"
                   >
-                    <div className={`absolute top-3 right-3 w-4 h-4 rounded-full border-2 ${active ? 'border-[#7C3AED] bg-[#7C3AED]' : 'border-white/30'} flex items-center justify-center`}>
-                      {active && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                    </div>
-                    <div className="mb-3 h-12 rounded-lg bg-white/5 overflow-hidden flex gap-1 p-1.5">
+                    <div className={`w-full h-14 mb-2 rounded-lg overflow-hidden flex items-center justify-center p-1 ${active ? 'bg-[#7C3AED]/10' : 'bg-white/5'}`}>
                       {layout.id === 'auto' && (
                         <div className="grid grid-cols-2 gap-1 w-full h-full">
-                          <div className="bg-white/20 rounded" />
-                          <div className="bg-white/20 rounded" />
                           <div className="bg-white/20 rounded" />
                           <div className="bg-white/20 rounded" />
                         </div>
                       )}
                       {layout.id === 'grid' && (
-                        <div className="flex gap-1 w-full h-full">
-                          <div className="bg-white/20 rounded flex-1" />
-                          <div className="bg-white/20 rounded flex-1" />
-                          <div className="bg-white/20 rounded flex-1" />
+                        <div className="grid grid-cols-2 gap-1 w-full h-full">
+                          <div className="bg-white/20 rounded" />
+                          <div className="bg-white/20 rounded" />
+                          <div className="bg-white/20 rounded" />
+                          <div className="bg-white/20 rounded" />
                         </div>
                       )}
                       {layout.id === 'spotlight' && (

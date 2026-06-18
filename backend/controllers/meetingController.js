@@ -13,7 +13,7 @@ export const getMeetings = async (req, res) => {
       $or: [{ host: req.user._id }, { participants: req.user._id }]
     }).populate('host', 'name email');
     
-    await redis.setex(cacheKey, 60, JSON.stringify(meetings));
+    await redis.set(cacheKey, JSON.stringify(meetings), 'EX', 60);
     res.json(meetings);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -35,20 +35,14 @@ export const getMeetingById = async (req, res) => {
   }
 };
 
+// No cache — this endpoint is critical for host detection and must always return fresh data
 export const getMeetingByRoomId = async (req, res) => {
   try {
-    const cacheKey = `meeting:room:${req.params.roomId}`;
-    const cachedMeeting = await redis.get(cacheKey);
-    if (cachedMeeting) {
-      return res.json(JSON.parse(cachedMeeting));
-    }
-
     const meeting = await Meeting.findOne({ roomId: req.params.roomId })
-      .populate('host', 'name email')
-      .populate('participants', 'name email');
+      .populate('host', '_id name email')
+      .populate('participants', '_id name email');
       
     if (meeting) {
-      await redis.setex(cacheKey, 60, JSON.stringify(meeting));
       res.json(meeting);
     } else {
       res.status(404).json({ message: 'Meeting not found' });
@@ -75,6 +69,10 @@ export const createMeeting = async (req, res) => {
     });
 
     const createdMeeting = await meeting.save();
+    
+    // Populate host before returning so the frontend gets { host: { _id, name } }
+    await createdMeeting.populate('host', '_id name email');
+    
     res.status(201).json(createdMeeting);
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -24,7 +24,8 @@ export const LoginPage = () => {
       const { user, token, _id, name, email: userEmail } = response.data
 
       const userData = {
-        id: _id || user?.id || '1',
+        _id: _id || user?._id || user?.id,
+        id: _id || user?._id || user?.id,
         email: userEmail || email,
         name: name || user?.name || email.split('@')[0],
       }

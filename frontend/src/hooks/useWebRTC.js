@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+]
 
 export const useWebRTC = () => {
   const [localStream, setLocalStream] = useState(null)
@@ -10,13 +17,19 @@ export const useWebRTC = () => {
 
   const peerConnectionsRef = useRef({})
   const localStreamRef = useRef(null)
-  const screenStream = useRef(null)
-  const allVideoTracksRef = useRef([])
-  const allAudioTracksRef = useRef([])
+  const screenStreamRef = useRef(null)
+  const makingOfferRef = useRef({}) // Track per-peer offer-in-progress
+  const socketRefForScreen = useRef(null) // Socket ref for screen share renegotiation
 
-  // Initialize local media stream
-  const initializeMedia = async () => {
+  // ─── INITIALIZE MEDIA ───
+  const initializeMedia = useCallback(async () => {
     try {
+      // If we already have a stream, don't re-acquire
+      if (localStreamRef.current) {
+        setLocalStream(localStreamRef.current)
+        return localStreamRef.current
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -29,162 +42,106 @@ export const useWebRTC = () => {
         },
       })
 
-      setLocalStream(stream)
       localStreamRef.current = stream
-
-      const videoTrack = stream.getVideoTracks()[0]
-      if (videoTrack) {
-        // Add onended handler to clean up when track naturally ends
-        videoTrack.onended = () => {
-          setError('Camera disconnected')
-        }
-        allVideoTracksRef.current.push(videoTrack)
-      }
-
-      const audioTrack = stream.getAudioTracks()[0]
-      if (audioTrack) {
-        // Add onended handler to clean up when track naturally ends
-        audioTrack.onended = () => {
-          setError('Microphone disconnected')
-        }
-        allAudioTracksRef.current.push(audioTrack)
-      }
-
+      setLocalStream(stream)
+      setError(null)
       return stream
     } catch (err) {
+      console.error('[WebRTC] initializeMedia error:', err)
       setError(
         err.name === 'NotAllowedError'
-          ? 'Camera/microphone permission denied'
-          : 'Failed to access media devices'
+          ? 'Camera/microphone permission denied. Please allow access in your browser.'
+          : err.name === 'NotFoundError'
+            ? 'No camera or microphone found on this device.'
+            : 'Failed to access media devices'
       )
-      return null
+      // Create a silent/black fallback stream so the app still works
+      try {
+        const fallback = await navigator.mediaDevices.getUserMedia({ audio: true })
+        localStreamRef.current = fallback
+        setLocalStream(fallback)
+        setIsVideoEnabled(false)
+        return fallback
+      } catch {
+        return null
+      }
     }
-  }
+  }, [])
 
-  // Stop media stream
-  const stopMedia = () => {
+  // ─── STOP MEDIA ───
+  const stopMedia = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop())
-      setLocalStream(null)
       localStreamRef.current = null
+      setLocalStream(null)
     }
-    allVideoTracksRef.current.forEach((track) => track.stop())
-    allVideoTracksRef.current = []
-    allAudioTracksRef.current.forEach((track) => track.stop())
-    allAudioTracksRef.current = []
-  }
+  }, [])
 
-  // Toggle audio — stop and restart microphone so hardware light turns off when disabled
-  const toggleAudio = async () => {
+  // ─── TOGGLE AUDIO ───
+  const toggleAudio = useCallback(() => {
     if (!localStreamRef.current) return
+    const audioTracks = localStreamRef.current.getAudioTracks()
+    audioTracks.forEach((track) => {
+      track.enabled = !track.enabled
+    })
+    setIsAudioEnabled((prev) => !prev)
+  }, [])
 
-    if (isAudioEnabled) {
-      // Turn OFF: stop ALL audio tracks completely
-      const currentTracks = localStreamRef.current.getAudioTracks()
-      currentTracks.forEach((track) => {
-        track.stop() // This stops the hardware stream
-        try {
-          localStreamRef.current.removeTrack(track)
-        } catch (e) {
-          // ignore if removeTrack fails
-        }
-      })
-      // Also clear all tracked audio tracks
-      allAudioTracksRef.current.forEach((track) => {
-        if (track.readyState !== 'ended') {
-          track.stop()
-        }
-      })
-      setIsAudioEnabled(false)
-    } else {
-      // Turn ON: get a fresh audio track
-      try {
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        })
-        const newAudioTrack = newStream.getAudioTracks()[0]
-        if (newAudioTrack) {
-          // Add onended handler to clean up when track naturally ends
-          newAudioTrack.onended = () => {
-            setError('Microphone disconnected')
-          }
-          allAudioTracksRef.current.push(newAudioTrack)
-          localStreamRef.current.addTrack(newAudioTrack)
-          setIsAudioEnabled(true)
-          setLocalStream(null)
-          setTimeout(() => setLocalStream(localStreamRef.current), 0)
-        }
-      } catch (err) {
-        setError('Failed to restart microphone')
-      }
-    }
-  }
-
-  // Toggle video — stop and restart camera so hardware light turns off when disabled
-  const toggleVideo = async () => {
+  // ─── TOGGLE VIDEO ───
+  const toggleVideo = useCallback(() => {
     if (!localStreamRef.current) return
+    const videoTracks = localStreamRef.current.getVideoTracks()
+    videoTracks.forEach((track) => {
+      track.enabled = !track.enabled
+    })
+    setIsVideoEnabled((prev) => !prev)
+  }, [])
 
-    if (isVideoEnabled) {
-      // Turn OFF: stop ALL video tracks completely
-      const currentTracks = localStreamRef.current.getVideoTracks()
-      currentTracks.forEach((track) => {
-        track.stop() // This stops the hardware stream
-        try {
-          localStreamRef.current.removeTrack(track)
-        } catch (e) {
-          // ignore if removeTrack fails
-        }
-      })
-      // Also clear all tracked video tracks
-      allVideoTracksRef.current.forEach((track) => {
-        if (track.readyState !== 'ended') {
-          track.stop()
-        }
-      })
-      setIsVideoEnabled(false)
-    } else {
-      // Turn ON: get a fresh video track
-      try {
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        })
-        const newVideoTrack = newStream.getVideoTracks()[0]
-        if (newVideoTrack) {
-          // Add onended handler to clean up when track naturally ends
-          newVideoTrack.onended = () => {
-            setError('Camera disconnected')
-          }
-          allVideoTracksRef.current.push(newVideoTrack)
-          localStreamRef.current.addTrack(newVideoTrack)
-          setIsVideoEnabled(true)
-          setLocalStream(null)
-          setTimeout(() => setLocalStream(localStreamRef.current), 0)
-        }
-      } catch (err) {
-        setError('Failed to restart camera')
-      }
-    }
-  }
+  // ─── SCREEN SHARE ───
+  const screenAddedPeersRef = useRef(new Set()) // Track which peers used addTrack (need renegotiation on stop)
 
-  const startScreenShare = async () => {
+  const startScreenShare = useCallback(async (socketRef) => {
     try {
+      // Store socket ref for screen track's onended handler
+      socketRefForScreen.current = socketRef
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: true,
+        audio: false,
       })
 
-      screenStream.current = stream
+      screenStreamRef.current = stream
       setIsScreenSharing(true)
+      screenAddedPeersRef.current.clear()
 
-      const [videoTrack] = stream.getVideoTracks()
-      if (videoTrack) {
-        videoTrack.onended = () => {
-          stopScreenShare()
-        }
+      const screenTrack = stream.getVideoTracks()[0]
+      if (screenTrack) {
+        screenTrack.onended = () => stopScreenShare(socketRefForScreen.current)
+
+        Object.entries(peerConnectionsRef.current).forEach(([peerId, pc]) => {
+          if (pc.signalingState === 'closed') return
+
+          const videoSender = pc.getSenders().find((s) => s.track && s.track.kind === 'video')
+          if (videoSender) {
+            // Video sender exists (camera available but maybe disabled)
+            // replaceTrack works WITHOUT renegotiation — remote receives new content immediately
+            videoSender.replaceTrack(screenTrack)
+            console.log(`[WebRTC] replaceTrack for screen share to ${peerId}`)
+          } else {
+            // No video sender (camera was unavailable) — need addTrack + renegotiate
+            pc.addTrack(screenTrack, stream)
+            screenAddedPeersRef.current.add(peerId)
+            console.log(`[WebRTC] addTrack for screen share to ${peerId}, renegotiating...`)
+
+            pc.createOffer()
+              .then((offer) => pc.setLocalDescription(offer))
+              .then(() => {
+                if (socketRef?.current) {
+                  socketRef.current.emit('webrtc-offer', pc.localDescription, peerId)
+                }
+              })
+              .catch((err) => console.error('[WebRTC] Screen share renegotiation error:', err))
+          }
+        })
       }
 
       return stream
@@ -194,207 +151,249 @@ export const useWebRTC = () => {
       }
       return null
     }
-  }
+  }, [])
 
-  const stopScreenShare = () => {
-    if (screenStream.current) {
-      screenStream.current.getTracks().forEach((track) => track.stop())
-      screenStream.current = null
+  const stopScreenShare = useCallback((socketRef) => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop())
+      screenStreamRef.current = null
     }
     setIsScreenSharing(false)
-  }
 
-  // Get available devices
-  const getDevices = async () => {
+    const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null
+    Object.entries(peerConnectionsRef.current).forEach(([peerId, pc]) => {
+      if (pc.signalingState === 'closed') return
+
+      const videoSender = pc.getSenders().find(
+        (s) => s.track === null || (s.track && s.track.kind === 'video')
+      )
+      if (videoSender) {
+        videoSender.replaceTrack(cameraTrack)
+      }
+
+      // Only renegotiate for peers where we used addTrack
+      if (screenAddedPeersRef.current.has(peerId)) {
+        pc.createOffer()
+          .then((offer) => pc.setLocalDescription(offer))
+          .then(() => {
+            if (socketRef?.current) {
+              socketRef.current.emit('webrtc-offer', pc.localDescription, peerId)
+            }
+          })
+          .catch((err) => console.error('[WebRTC] Screen share stop renegotiation error:', err))
+      }
+    })
+    screenAddedPeersRef.current.clear()
+  }, [])
+
+  // ─── GET DEVICES ───
+  const getDevices = useCallback(async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices()
-      const audioDevices = devices.filter((d) => d.kind === 'audioinput')
-      const videoDevices = devices.filter((d) => d.kind === 'videoinput')
-
       return {
-        audioDevices,
-        videoDevices,
+        audioDevices: devices.filter((d) => d.kind === 'audioinput'),
+        videoDevices: devices.filter((d) => d.kind === 'videoinput'),
       }
     } catch (err) {
       setError('Failed to enumerate devices')
       return { audioDevices: [], videoDevices: [] }
     }
-  }
+  }, [])
 
-  // Switch camera/microphone
-  const switchDevice = async (deviceId, kind) => {
+  // ─── SWITCH DEVICE ───
+  const switchDevice = useCallback(async (deviceId, kind) => {
     try {
-      // Stop only the relevant tracks
-      if (localStreamRef.current) {
-        if (kind === 'videoinput') {
-          const videoTracks = localStreamRef.current.getVideoTracks()
-          videoTracks.forEach((track) => {
-            track.stop()
-            try {
-              localStreamRef.current.removeTrack(track)
-            } catch (e) {
-              // ignore if removeTrack fails
-            }
-          })
-        } else if (kind === 'audioinput') {
-          const audioTracks = localStreamRef.current.getAudioTracks()
-          audioTracks.forEach((track) => {
-            track.stop()
-            try {
-              localStreamRef.current.removeTrack(track)
-            } catch (e) {
-              // ignore if removeTrack fails
-            }
-          })
-        }
-      }
+      const constraints =
+        kind === 'audioinput'
+          ? { audio: { deviceId: { exact: deviceId } } }
+          : { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } }
 
-      // Use correct constraint syntax with exact deviceId
-      const constraints = {
-        audio: kind === 'audioinput' ? { deviceId: { exact: deviceId } } : isAudioEnabled,
-        video: kind === 'videoinput' ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : isVideoEnabled,
-      }
+      const newStream = await navigator.mediaDevices.getUserMedia(constraints)
+      const newTrack = newStream.getTracks()[0]
+      if (!newTrack || !localStreamRef.current) return null
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
-      
-      // Merge new tracks with existing stream
-      if (kind === 'videoinput') {
-        const newVideoTrack = stream.getVideoTracks()[0]
-        if (newVideoTrack && localStreamRef.current) {
-          newVideoTrack.onended = () => {
-            setError('Camera disconnected')
-          }
-          allVideoTracksRef.current.push(newVideoTrack)
-          localStreamRef.current.addTrack(newVideoTrack)
-        }
-        // Stop all tracks from the temporary stream except video
-        stream.getAudioTracks().forEach((track) => track.stop())
-      } else if (kind === 'audioinput') {
-        const newAudioTrack = stream.getAudioTracks()[0]
-        if (newAudioTrack && localStreamRef.current) {
-          newAudioTrack.onended = () => {
-            setError('Microphone disconnected')
-          }
-          allAudioTracksRef.current.push(newAudioTrack)
-          localStreamRef.current.addTrack(newAudioTrack)
-        }
-        // Stop all tracks from the temporary stream except audio
-        stream.getVideoTracks().forEach((track) => track.stop())
-      }
+      const trackKind = kind === 'audioinput' ? 'audio' : 'video'
 
-      setLocalStream(localStreamRef.current)
-      return stream
+      // Replace in local stream
+      const oldTrack = localStreamRef.current.getTracks().find((t) => t.kind === trackKind)
+      if (oldTrack) {
+        localStreamRef.current.removeTrack(oldTrack)
+        oldTrack.stop()
+      }
+      localStreamRef.current.addTrack(newTrack)
+
+      // Replace in peer connections
+      Object.values(peerConnectionsRef.current).forEach((pc) => {
+        if (pc.signalingState !== 'closed') {
+          const sender = pc.getSenders().find((s) => s.track && s.track.kind === trackKind)
+          if (sender) sender.replaceTrack(newTrack)
+        }
+      })
+
+      // Force React re-render
+      setLocalStream(null)
+      setTimeout(() => setLocalStream(localStreamRef.current), 0)
+
+      return newStream
     } catch (err) {
       setError('Failed to switch device')
       return null
     }
-  }
+  }, [])
 
-  const createPeerConnection = (socketId, socketRef) => {
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:global.stun.twilio.com:3478' }
-      ]
-    })
+  // ─── CREATE PEER CONNECTION ───
+  const createPeerConnection = useCallback((socketId, socketRef) => {
+    // If one already exists, close it first
+    if (peerConnectionsRef.current[socketId]) {
+      peerConnectionsRef.current[socketId].close()
+      delete peerConnectionsRef.current[socketId]
+    }
+
+    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
+      if (event.candidate && socketRef.current) {
         socketRef.current.emit('ice-candidate', event.candidate, socketId)
       }
     }
 
     pc.ontrack = (event) => {
-      setRemoteStreams((prev) => ({
-        ...prev,
-        [socketId]: event.streams[0]
-      }))
+      console.log(`[WebRTC] Got remote track from ${socketId}:`, event.track.kind, 'readyState:', event.track.readyState)
+
+      setRemoteStreams((prev) => {
+        const existingStream = prev[socketId]
+        if (existingStream) {
+          // Renegotiation: add new track to existing stream if not already present
+          const existingTrackIds = existingStream.getTracks().map((t) => t.id)
+          if (!existingTrackIds.includes(event.track.id)) {
+            existingStream.addTrack(event.track)
+            console.log(`[WebRTC] Added ${event.track.kind} track to existing stream for ${socketId}`)
+          }
+          return { ...prev } // new object ref to trigger React re-render
+        }
+        // New connection — use provided stream or create one from track
+        const stream = event.streams[0] || new MediaStream([event.track])
+        return { ...prev, [socketId]: stream }
+      })
     }
 
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE state for ${socketId}: ${pc.iceConnectionState}`)
+      if (pc.iceConnectionState === 'failed') {
+        console.warn(`[WebRTC] ICE failed for ${socketId}, restarting...`)
+        pc.restartIce()
+      }
+    }
+
+    // Add ALL local tracks to this peer connection
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => {
         pc.addTrack(track, localStreamRef.current)
       })
     }
 
-    if (screenStream.current) {
-      screenStream.current.getTracks().forEach((track) => {
-        pc.addTrack(track, screenStream.current)
-      })
-    }
-
     peerConnectionsRef.current[socketId] = pc
     return pc
-  }
+  }, [])
 
-  const handleUserConnected = async (socketId, socketRef) => {
+  // ─── HANDLE USER CONNECTED (we are the OFFERER) ───
+  const handleUserConnected = useCallback(async (socketId, socketRef) => {
+    console.log(`[WebRTC] User connected: ${socketId}, creating offer...`)
     const pc = createPeerConnection(socketId, socketRef)
+
     try {
+      makingOfferRef.current[socketId] = true
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
-      socketRef.current.emit('webrtc-offer', offer, socketId)
+      socketRef.current.emit('webrtc-offer', pc.localDescription, socketId)
     } catch (err) {
-      console.error('Error creating offer', err)
+      console.error('[WebRTC] Error creating offer:', err)
+    } finally {
+      makingOfferRef.current[socketId] = false
     }
-  }
+  }, [createPeerConnection])
 
-  const handleOffer = async (offer, senderSocketId, socketRef) => {
-    const pc = createPeerConnection(senderSocketId, socketRef)
+  // ─── HANDLE OFFER (we are the ANSWERER, or renegotiation) ───
+  const handleOffer = useCallback(async (offer, senderSocketId, socketRef) => {
+    // Check if we already have a connection (renegotiation case, e.g. screen share)
+    let pc = peerConnectionsRef.current[senderSocketId]
+    if (pc && pc.signalingState !== 'closed') {
+      console.log(`[WebRTC] Renegotiation offer from ${senderSocketId}`)
+    } else {
+      console.log(`[WebRTC] New offer from ${senderSocketId}, creating peer connection...`)
+      pc = createPeerConnection(senderSocketId, socketRef)
+    }
+
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer))
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
-      socketRef.current.emit('webrtc-answer', answer, senderSocketId)
+      socketRef.current.emit('webrtc-answer', pc.localDescription, senderSocketId)
     } catch (err) {
-      console.error('Error handling offer', err)
+      console.error('[WebRTC] Error handling offer:', err)
     }
-  }
+  }, [createPeerConnection])
 
-  const handleAnswer = async (answer, senderSocketId) => {
+  // ─── HANDLE ANSWER ───
+  const handleAnswer = useCallback(async (answer, senderSocketId) => {
     const pc = peerConnectionsRef.current[senderSocketId]
-    if (pc) {
-      try {
+    if (!pc) return
+
+    try {
+      if (pc.signalingState === 'have-local-offer') {
         await pc.setRemoteDescription(new RTCSessionDescription(answer))
-      } catch (err) {
-        console.error('Error handling answer', err)
+      } else {
+        console.warn(`[WebRTC] Ignoring answer in state: ${pc.signalingState}`)
       }
+    } catch (err) {
+      console.error('[WebRTC] Error handling answer:', err)
     }
-  }
+  }, [])
 
-  const handleIceCandidate = async (candidate, senderSocketId) => {
+  // ─── HANDLE ICE CANDIDATE ───
+  const handleIceCandidate = useCallback(async (candidate, senderSocketId) => {
     const pc = peerConnectionsRef.current[senderSocketId]
-    if (pc) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate))
-      } catch (err) {
-        console.error('Error handling ice candidate', err)
-      }
-    }
-  }
+    if (!pc) return
 
-  const handleUserDisconnected = (socketId) => {
+    try {
+      if (pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      }
+    } catch (err) {
+      // Non-critical: ICE candidates arriving out of order
+      console.warn('[WebRTC] Error adding ICE candidate:', err.message)
+    }
+  }, [])
+
+  // ─── HANDLE USER DISCONNECTED ───
+  const handleUserDisconnected = useCallback((socketId) => {
+    console.log(`[WebRTC] User disconnected: ${socketId}`)
     if (peerConnectionsRef.current[socketId]) {
       peerConnectionsRef.current[socketId].close()
       delete peerConnectionsRef.current[socketId]
     }
+    delete makingOfferRef.current[socketId]
     setRemoteStreams((prev) => {
-      const newStreams = { ...prev }
-      delete newStreams[socketId]
-      return newStreams
+      const updated = { ...prev }
+      delete updated[socketId]
+      return updated
     })
-  }
+  }, [])
 
-  // Cleanup
+  // ─── CLEANUP ───
   useEffect(() => {
     return () => {
-      stopMedia()
       Object.values(peerConnectionsRef.current).forEach((pc) => {
         if (pc) {
           pc.onicecandidate = null
           pc.ontrack = null
+          pc.oniceconnectionstatechange = null
           pc.close()
         }
       })
+      peerConnectionsRef.current = {}
+      // NOTE: We intentionally do NOT stop media here.
+      // Media is stopped explicitly when the user leaves the meeting.
     }
   }, [])
 
@@ -404,7 +403,7 @@ export const useWebRTC = () => {
     isAudioEnabled,
     isVideoEnabled,
     isScreenSharing,
-    screenStream,
+    screenStream: screenStreamRef,
     error,
     initializeMedia,
     stopMedia,
@@ -418,6 +417,6 @@ export const useWebRTC = () => {
     handleOffer,
     handleAnswer,
     handleIceCandidate,
-    handleUserDisconnected
+    handleUserDisconnected,
   }
 }
