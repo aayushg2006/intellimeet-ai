@@ -13,10 +13,12 @@ import {
 import axios from 'axios'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '../store/authStore'
+import { useWorkspaceStore } from '../store/workspaceStore'
 
 export const TeamWorkspace = () => {
   const navigate = useNavigate()
   const { token } = useAuthStore()
+  const { activeWorkspace } = useWorkspaceStore()
 
   const tagColors = {
     Frontend: 'bg-blue-50 text-blue-600',
@@ -32,10 +34,11 @@ export const TeamWorkspace = () => {
   }
 
   const { data: tasks = [], isLoading: loading } = useQuery({
-    queryKey: ['tasks'],
+    queryKey: ['tasks', activeWorkspace],
     queryFn: async () => {
       const res = await axios.get('/api/tasks', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        params: { organizationId: activeWorkspace === 'personal' ? null : activeWorkspace }
       })
       return res.data
     },
@@ -88,8 +91,12 @@ export const TeamWorkspace = () => {
       <div className="max-w-7xl mx-auto px-6 pt-6 pb-4">
         <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-[#1A1A1A]">Team Workspace</h1>
-            <p className="text-sm text-[#6B6560] mt-1">IntellMeet — Sprint 1</p>
+            <h1 className="text-2xl font-semibold text-[#1A1A1A]">
+              {activeWorkspace === 'personal' ? 'My Tasks' : 'Team Workspace'}
+            </h1>
+            <p className="text-sm text-[#6B6560] mt-1">
+              {activeWorkspace === 'personal' ? 'Personal To-Do Board' : 'IntellMeet — Sprint 1'}
+            </p>
           </div>
           <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full">
             {totalTasks} tasks

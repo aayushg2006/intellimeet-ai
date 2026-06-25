@@ -8,6 +8,7 @@ const meetingSchema = new mongoose.Schema({
   scheduledAt: { type: Date },
   status: { type: String, enum: ['scheduled', 'ongoing', 'completed'], default: 'scheduled' },
   roomId: { type: String, required: true, unique: true }, // For socket.io/WebRTC
+  organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }, // null = personal
   createdAt: { type: Date, default: Date.now }
 });
 

@@ -2,7 +2,12 @@ import Task from '../models/Task.js';
 
 export const getTasks = async (req, res) => {
   try {
-    const tasks = await Task.find({ assignee: req.user._id }).populate('assignee', 'name');
+    const { organizationId } = req.query;
+    const query = { 
+      assignee: req.user._id,
+      organizationId: organizationId || null
+    };
+    const tasks = await Task.find(query).populate('assignee', 'name');
     res.json(tasks);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -11,7 +16,7 @@ export const getTasks = async (req, res) => {
 
 export const createTask = async (req, res) => {
   try {
-    const { title, description, status, meetingId, dueDate } = req.body;
+    const { title, description, status, meetingId, dueDate, organizationId } = req.body;
     
     const task = new Task({
       title,
@@ -19,7 +24,8 @@ export const createTask = async (req, res) => {
       status: status || 'Todo',
       assignee: req.user._id,
       meetingId,
-      dueDate
+      dueDate,
+      organizationId: organizationId || null
     });
 
     const createdTask = await task.save();

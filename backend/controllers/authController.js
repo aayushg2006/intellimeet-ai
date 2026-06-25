@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { checkAndJoinOrganizationByDomain } from '../utils/orgUtils.js';
 
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -28,6 +29,9 @@ export const registerUser = async (req, res, next) => {
       password,
       authProvider: 'local',
     });
+
+    // Auto-join organization if domain matches
+    await checkAndJoinOrganizationByDomain(user);
 
     res.status(201).json({
       _id: user._id,

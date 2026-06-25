@@ -13,6 +13,8 @@ import { AuthCallback } from './pages/AuthCallback'
 import { SettingsPage } from './pages/SettingsPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
+import { OrganizationSettings } from './pages/OrganizationSettings'
+import { JoinOrganization } from './pages/JoinOrganization'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -101,6 +103,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/org/settings"
+            element={
+              <ProtectedRoute>
+                <OrganizationSettings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/join/:token"
+            element={
+              <ProtectedRoute>
+                <JoinOrganization />
               </ProtectedRoute>
             }
           />

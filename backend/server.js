@@ -82,6 +82,7 @@ import taskRoutes from './routes/taskRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
 import summaryRoutes from './routes/summaryRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
+import organizationRoutes from './routes/organizationRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/meetings', meetingRoutes);
@@ -89,6 +90,7 @@ app.use('/api/tasks', taskRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/summaries', summaryRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/organizations', organizationRoutes);
 
 // ─── ERROR HANDLING (must be after all routes) ───
 app.use(notFound);

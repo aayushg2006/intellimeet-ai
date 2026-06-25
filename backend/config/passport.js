@@ -1,6 +1,7 @@
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import User from '../models/User.js';
+import { checkAndJoinOrganizationByDomain } from '../utils/orgUtils.js';
 
 const configurePassport = () => {
   passport.use(
@@ -47,6 +48,9 @@ const configurePassport = () => {
             authProvider: 'google',
             avatar: profile.photos?.[0]?.value || '',
           });
+
+          // Auto-join organization if domain matches
+          await checkAndJoinOrganizationByDomain(user);
 
           return done(null, user);
         } catch (error) {

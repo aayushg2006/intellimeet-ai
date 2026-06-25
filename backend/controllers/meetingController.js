@@ -3,15 +3,19 @@ import redis from '../config/redis.js';
 
 export const getMeetings = async (req, res) => {
   try {
-    const cacheKey = `meetings:user:${req.user._id}`;
+    const { organizationId } = req.query;
+    const cacheKey = `meetings:user:${req.user._id}:org:${organizationId || 'personal'}`;
     const cachedMeetings = await redis.get(cacheKey);
     if (cachedMeetings) {
       return res.json(JSON.parse(cachedMeetings));
     }
 
-    const meetings = await Meeting.find({
-      $or: [{ host: req.user._id }, { participants: req.user._id }]
-    }).populate('host', 'name email');
+    const query = {
+      $or: [{ host: req.user._id }, { participants: req.user._id }],
+      organizationId: organizationId || null,
+    };
+
+    const meetings = await Meeting.find(query).populate('host', 'name email');
     
     await redis.set(cacheKey, JSON.stringify(meetings), 'EX', 60);
     res.json(meetings);
@@ -54,7 +58,7 @@ export const getMeetingByRoomId = async (req, res) => {
 
 export const createMeeting = async (req, res) => {
   try {
-    const { title, description, scheduledAt, roomId } = req.body;
+    const { title, description, scheduledAt, roomId, organizationId } = req.body;
     
     // Auto-generate roomId if not provided
     const generatedRoomId = roomId || Math.random().toString(36).substring(2, 10);
@@ -65,7 +69,8 @@ export const createMeeting = async (req, res) => {
       scheduledAt,
       roomId: generatedRoomId,
       host: req.user._id,
-      participants: [req.user._id]
+      participants: [req.user._id],
+      organizationId: organizationId || null,
     });
 
     const createdMeeting = await meeting.save();

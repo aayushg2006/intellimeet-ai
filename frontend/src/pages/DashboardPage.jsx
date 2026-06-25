@@ -4,17 +4,21 @@ import { useAuthStore } from '../store/authStore'
 import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader, Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
+import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
+import { useWorkspaceStore } from '../store/workspaceStore'
 
 export const DashboardPage = () => {
   const navigate = useNavigate()
   const { user, token, logout } = useAuthStore()
+  const { activeWorkspace } = useWorkspaceStore()
   const [meetingId, setMeetingId] = useState('')
   const [showJoinModal, setShowJoinModal] = useState(false)
   const { data: meetings = [], isLoading: loading } = useQuery({
-    queryKey: ['meetings'],
+    queryKey: ['meetings', activeWorkspace],
     queryFn: async () => {
       const res = await axios.get('/api/meetings', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        params: { organizationId: activeWorkspace === 'personal' ? null : activeWorkspace }
       })
       return res.data
     },
@@ -33,7 +37,8 @@ export const DashboardPage = () => {
       await axios.post('/api/meetings', {
         title: 'Instant Meeting',
         roomId: newMeetingId,
-        scheduledAt: new Date()
+        scheduledAt: new Date(),
+        organizationId: activeWorkspace === 'personal' ? null : activeWorkspace
       }, {
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -68,7 +73,8 @@ export const DashboardPage = () => {
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center gap-2">
               <span className="text-[#7C3AED] text-sm">●</span>
-              <span className="text-lg font-semibold text-[#1A1A1A]">IntellMeet</span>
+              <span className="text-lg font-semibold text-[#1A1A1A] mr-4">IntellMeet</span>
+              <WorkspaceSwitcher />
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -171,8 +177,12 @@ export const DashboardPage = () => {
             <div className="w-10 h-10 bg-[#059669]/10 rounded-xl flex items-center justify-center mb-4">
               <LayoutGrid size={20} className="text-[#059669]" />
             </div>
-            <div className="text-[#1A1A1A] font-semibold text-lg">Team Workspace</div>
-            <div className="text-sm text-[#6B6560] mt-1">View tasks & sprint board</div>
+            <div className="text-[#1A1A1A] font-semibold text-lg">
+              {activeWorkspace === 'personal' ? 'My Tasks' : 'Team Workspace'}
+            </div>
+            <div className="text-sm text-[#6B6560] mt-1">
+              {activeWorkspace === 'personal' ? 'View your personal tasks' : 'View tasks & sprint board'}
+            </div>
             <ArrowUpRight
               size={15}
               className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors"

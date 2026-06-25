@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const summarySchema = new mongoose.Schema({
   meetingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Meeting', required: true, unique: true },
+  organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }, // null = personal
   title: { type: String },
   date: { type: String },
   duration: { type: String },
