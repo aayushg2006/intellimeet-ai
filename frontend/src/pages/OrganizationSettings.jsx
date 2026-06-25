@@ -4,7 +4,103 @@ import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Building, Link2, Copy, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Plus, Building, Link2, Copy, CheckCircle2, Trash2, Shield, User as UserIcon } from 'lucide-react';
+
+const OrganizationMembersList = ({ orgId, isAdmin }) => {
+  const { token } = useAuthStore();
+  const queryClient = useQueryClient();
+
+  const { data: members = [], isLoading } = useQuery({
+    queryKey: ['orgMembers', orgId],
+    queryFn: async () => {
+      const res = await axios.get(`/api/organizations/${orgId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.data;
+    },
+    enabled: !!token && !!orgId
+  });
+
+  const updateRoleMutation = useMutation({
+    mutationFn: async ({ memberId, role }) => {
+      const res = await axios.put(`/api/organizations/${orgId}/members/${memberId}/role`, { role }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.data;
+    },
+    onSuccess: () => queryClient.invalidateQueries(['orgMembers', orgId]),
+    onError: (err) => alert(err.response?.data?.message || 'Failed to update role')
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (memberId) => {
+      const res = await axios.delete(`/api/organizations/${orgId}/members/${memberId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.data;
+    },
+    onSuccess: () => queryClient.invalidateQueries(['orgMembers', orgId]),
+    onError: (err) => alert(err.response?.data?.message || 'Failed to remove member')
+  });
+
+  if (isLoading) return <div className="text-xs text-[#6B6560] py-2">Loading members...</div>;
+
+  return (
+    <div className="mt-4 pt-4 border-t border-[#E8E4DD]">
+      <p className="text-xs text-[#6B6560] mb-3 uppercase tracking-wider font-semibold flex items-center gap-2">
+        <UserIcon size={14} /> Organization Members ({members.length})
+      </p>
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
+        {members.map(member => (
+          <div key={member._id} className="flex items-center justify-between p-2 rounded-lg hover:bg-[#FAF9F7] border border-transparent hover:border-[#E8E4DD] transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-[#7C3AED]/10 text-[#7C3AED] text-xs font-semibold flex items-center justify-center">
+                {member.userId?.name?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-[#1A1A1A]">{member.userId?.name}</p>
+                <p className="text-xs text-[#6B6560]">{member.userId?.email}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {isAdmin ? (
+                <select
+                  value={member.role}
+                  onChange={(e) => updateRoleMutation.mutate({ memberId: member.userId._id, role: e.target.value })}
+                  className="text-xs bg-white border border-[#E8E4DD] rounded px-2 py-1 focus:outline-none focus:border-[#7C3AED]"
+                  disabled={updateRoleMutation.isLoading || removeMemberMutation.isLoading}
+                >
+                  <option value="OrgAdmin">Admin</option>
+                  <option value="OrgMember">Member</option>
+                </select>
+              ) : (
+                <span className={`text-xs px-2 py-1 rounded-md font-medium ${member.role === 'OrgAdmin' ? 'bg-[#7C3AED]/10 text-[#7C3AED]' : 'bg-[#E8E4DD] text-[#6B6560]'}`}>
+                  {member.role === 'OrgAdmin' ? 'Admin' : 'Member'}
+                </span>
+              )}
+
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to remove ${member.userId?.name}?`)) {
+                      removeMemberMutation.mutate(member.userId._id);
+                    }
+                  }}
+                  disabled={updateRoleMutation.isLoading || removeMemberMutation.isLoading}
+                  className="p-1 text-[#6B6560] hover:text-red-500 hover:bg-red-50 rounded transition disabled:opacity-50"
+                  title="Remove Member"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 export const OrganizationSettings = () => {
   const { token } = useAuthStore();
@@ -221,6 +317,8 @@ export const OrganizationSettings = () => {
                       </div>
                     </div>
                   )}
+
+                  <OrganizationMembersList orgId={org._id} isAdmin={org.userRole === 'OrgAdmin'} />
 
                   {activeWorkspace !== org._id && (
                     <button

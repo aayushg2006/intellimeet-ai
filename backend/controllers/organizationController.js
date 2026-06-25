@@ -103,3 +103,129 @@ export const joinOrganization = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * @route   GET /api/organizations/:id/members
+ * @desc    Get all members of an organization
+ */
+export const getMembers = async (req, res, next) => {
+  try {
+    const membership = await OrganizationMember.findOne({
+      userId: req.user._id,
+      organizationId: req.params.id,
+    });
+
+    if (!membership) {
+      res.status(403);
+      throw new Error('Not authorized to view this organization');
+    }
+
+    const members = await OrganizationMember.find({ organizationId: req.params.id })
+      .populate('userId', 'name email avatar');
+    
+    res.json(members);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @route   PUT /api/organizations/:id/members/:memberId/role
+ * @desc    Update a member's role (OrgAdmin only)
+ */
+export const updateMemberRole = async (req, res, next) => {
+  try {
+    const adminMembership = await OrganizationMember.findOne({
+      userId: req.user._id,
+      organizationId: req.params.id,
+      role: 'OrgAdmin'
+    });
+
+    if (!adminMembership) {
+      res.status(403);
+      throw new Error('Only organization admins can perform this action');
+    }
+
+    const { role } = req.body;
+    
+    if (!['OrgAdmin', 'OrgMember'].includes(role)) {
+      res.status(400);
+      throw new Error('Invalid role');
+    }
+
+    const targetMembership = await OrganizationMember.findOne({
+      userId: req.params.memberId,
+      organizationId: req.params.id,
+    });
+
+    if (!targetMembership) {
+      res.status(404);
+      throw new Error('Member not found');
+    }
+
+    // Prevent removing the last admin
+    if (targetMembership.role === 'OrgAdmin' && role === 'OrgMember') {
+      const adminCount = await OrganizationMember.countDocuments({
+        organizationId: req.params.id,
+        role: 'OrgAdmin'
+      });
+      if (adminCount <= 1) {
+        res.status(400);
+        throw new Error('Cannot demote the last organization admin');
+      }
+    }
+
+    targetMembership.role = role;
+    await targetMembership.save();
+
+    res.json({ message: 'Role updated successfully', member: targetMembership });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @route   DELETE /api/organizations/:id/members/:memberId
+ * @desc    Remove a member from the organization (OrgAdmin only)
+ */
+export const removeMember = async (req, res, next) => {
+  try {
+    const adminMembership = await OrganizationMember.findOne({
+      userId: req.user._id,
+      organizationId: req.params.id,
+      role: 'OrgAdmin'
+    });
+
+    if (!adminMembership) {
+      res.status(403);
+      throw new Error('Only organization admins can perform this action');
+    }
+
+    const targetMembership = await OrganizationMember.findOne({
+      userId: req.params.memberId,
+      organizationId: req.params.id,
+    });
+
+    if (!targetMembership) {
+      res.status(404);
+      throw new Error('Member not found');
+    }
+
+    if (targetMembership.role === 'OrgAdmin') {
+      const adminCount = await OrganizationMember.countDocuments({
+        organizationId: req.params.id,
+        role: 'OrgAdmin'
+      });
+      if (adminCount <= 1) {
+        res.status(400);
+        throw new Error('Cannot remove the last organization admin');
+      }
+    }
+
+    await OrganizationMember.deleteOne({ _id: targetMembership._id });
+
+    res.json({ message: 'Member removed successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
