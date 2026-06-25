@@ -17,12 +17,19 @@ export const getSummaryByMeeting = async (req, res) => {
 
     const summary = await Summary.findOne({ meetingId: meeting._id });
 
+    let calculatedDuration = summary?.duration || '0 minutes';
+    if (meeting.endedAt && meeting.createdAt) {
+      const diffMs = new Date(meeting.endedAt) - new Date(meeting.createdAt);
+      const diffMins = Math.round(diffMs / 60000);
+      calculatedDuration = `${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
+    }
+
     const responseData = {
       title: meeting.title,
       date: new Date(meeting.scheduledAt || meeting.createdAt).toLocaleDateString('en-US', {
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
       }),
-      duration: summary?.duration || '0 minutes',
+      duration: calculatedDuration,
       participants: meeting.participants.map(p => p.name) || [],
       summary: summary?.summary || 'No AI summary generated yet.',
       actionItems: summary?.actionItems || [],

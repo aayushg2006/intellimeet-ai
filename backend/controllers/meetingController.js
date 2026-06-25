@@ -47,6 +47,15 @@ export const getMeetingByRoomId = async (req, res) => {
       .populate('participants', '_id name email');
       
     if (meeting) {
+      // Access Control
+      if (meeting.allowedParticipants && meeting.allowedParticipants.length > 0) {
+        const isAllowed = meeting.allowedParticipants.some(p => p._id.toString() === req.user._id.toString()) || meeting.host._id.toString() === req.user._id.toString();
+        if (!isAllowed) {
+          // We don't check teams yet since teams might be empty, but ideally we check if user is in allowedTeams
+          // For now, simple check
+          return res.status(403).json({ message: 'You do not have permission to join this meeting.' });
+        }
+      }
       res.json(meeting);
     } else {
       res.status(404).json({ message: 'Meeting not found' });
@@ -58,7 +67,7 @@ export const getMeetingByRoomId = async (req, res) => {
 
 export const createMeeting = async (req, res) => {
   try {
-    const { title, description, scheduledAt, roomId, organizationId } = req.body;
+    const { title, description, scheduledAt, roomId, organizationId, meetingType, allowedParticipants, allowedTeams } = req.body;
     
     // Auto-generate roomId if not provided
     const generatedRoomId = roomId || Math.random().toString(36).substring(2, 10);
@@ -67,10 +76,13 @@ export const createMeeting = async (req, res) => {
       title,
       description,
       scheduledAt,
+      meetingType: meetingType || 'other',
       roomId: generatedRoomId,
       host: req.user._id,
       participants: [req.user._id],
       organizationId: organizationId || null,
+      allowedParticipants: allowedParticipants || [],
+      allowedTeams: allowedTeams || [],
     });
 
     const createdMeeting = await meeting.save();

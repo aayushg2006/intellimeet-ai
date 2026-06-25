@@ -6,9 +6,13 @@ const meetingSchema = new mongoose.Schema({
   host: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   scheduledAt: { type: Date },
+  endedAt: { type: Date },
+  meetingType: { type: String, enum: ['internal', 'external', 'standup', 'review', 'one-on-one', 'other'], default: 'other' },
   status: { type: String, enum: ['scheduled', 'ongoing', 'completed'], default: 'scheduled' },
   roomId: { type: String, required: true, unique: true }, // For socket.io/WebRTC
   organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }, // null = personal
+  allowedParticipants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // empty means all organization members
+  allowedTeams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
   createdAt: { type: Date, default: Date.now }
 });
 

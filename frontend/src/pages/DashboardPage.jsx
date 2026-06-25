@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader, Settings } from 'lucide-react'
+import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader, Settings, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
+import { ScheduleMeetingModal } from '../components/ScheduleMeetingModal'
 import { useWorkspaceStore } from '../store/workspaceStore'
 
 export const DashboardPage = () => {
@@ -13,6 +14,9 @@ export const DashboardPage = () => {
   const { activeWorkspace } = useWorkspaceStore()
   const [meetingId, setMeetingId] = useState('')
   const [showJoinModal, setShowJoinModal] = useState(false)
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+
   const { data: meetings = [], isLoading: loading } = useQuery({
     queryKey: ['meetings', activeWorkspace],
     queryFn: async () => {
@@ -137,20 +141,29 @@ export const DashboardPage = () => {
           </div>
         </header>
 
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-3 gap-4 mb-8">
           <button
             onClick={handleCreateMeeting}
             className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
           >
             <div className="w-10 h-10 bg-[#7C3AED]/8 rounded-xl flex items-center justify-center mb-4">
-              <Plus size={20} className="text-[#7C3AED]" />
+              <Video size={20} className="text-[#7C3AED]" />
             </div>
-            <div className="text-[#1A1A1A] font-semibold text-lg">New Meeting</div>
-            <div className="text-sm text-[#6B6560] mt-1">Start instantly</div>
-            <ArrowUpRight
-              size={15}
-              className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors"
-            />
+            <div className="text-[#1A1A1A] font-semibold text-lg">Instant Meeting</div>
+            <div className="text-sm text-[#6B6560] mt-1">Start right now</div>
+            <ArrowUpRight size={15} className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors" />
+          </button>
+
+          <button
+            onClick={() => setShowScheduleModal(true)}
+            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+          >
+            <div className="w-10 h-10 bg-[#10B981]/10 rounded-xl flex items-center justify-center mb-4">
+              <Plus size={20} className="text-[#10B981]" />
+            </div>
+            <div className="text-[#1A1A1A] font-semibold text-lg">Schedule Meeting</div>
+            <div className="text-sm text-[#6B6560] mt-1">Plan for later</div>
+            <ArrowUpRight size={15} className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors" />
           </button>
 
           <button
@@ -222,41 +235,115 @@ export const DashboardPage = () => {
           </div>
         </div>
 
-        <section className="mb-10">
-          <div className="text-xs font-medium uppercase tracking-wider text-[#6B6560] mb-3">
-            Recent meetings
+        {/* Search Bar */}
+        <div className="mb-8">
+          <div className="relative max-w-md">
+            <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#C4BDB5]" />
+            <input
+              type="text"
+              placeholder="Search meetings by title or ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-11 pr-4 py-3 bg-white border border-[#E8E4DD] rounded-xl text-sm focus:outline-none focus:border-[#7C3AED] transition-colors"
+            />
           </div>
-          <div className="bg-white border border-[#E8E4DD] rounded-2xl overflow-hidden divide-y divide-[#E8E4DD]">
-            {loading ? (
-              <div className="p-5 text-center text-[#6B6560]"><Loader className="animate-spin inline-block mr-2" size={16}/>Loading meetings...</div>
-            ) : meetings.length === 0 ? (
-              <div className="p-5 text-center text-[#6B6560]">No recent meetings found.</div>
-            ) : (
-              meetings.map((meeting) => (
-                <button
-                  key={meeting._id}
-                  type="button"
-                  onClick={() => navigate(`/meeting/${meeting.roomId}/summary`)}
-                  className="flex items-center justify-between px-5 py-4 hover:bg-[#F5F2EE] transition-colors cursor-pointer w-full text-left"
-                >
-                  <div className="flex items-center">
-                    <Video size={18} className="text-[#6B6560] mr-3" />
-                    <div>
-                      <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
-                      <div className="text-xs text-[#6B6560] mt-1">{new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="bg-[#F5F2EE] text-[#6B6560] text-xs px-2.5 py-1 rounded-full">
-                      {meeting.participants?.length || 1} people
-                    </span>
-                    <span className="ml-3 text-xs text-[#7C3AED] hover:underline">View summary</span>
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </section>
+        </div>
+
+        {(() => {
+          const filteredMeetings = meetings.filter(m => 
+            m.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+            m.roomId?.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+          const upcomingMeetings = filteredMeetings.filter(m => m.status !== 'completed')
+          const pastMeetings = filteredMeetings.filter(m => m.status === 'completed')
+
+          return (
+            <>
+              {/* Upcoming Meetings */}
+              <section className="mb-10">
+                <div className="text-xs font-medium uppercase tracking-wider text-[#6B6560] mb-3">
+                  Upcoming & Active Meetings
+                </div>
+                <div className="bg-white border border-[#E8E4DD] rounded-2xl overflow-hidden divide-y divide-[#E8E4DD]">
+                  {loading ? (
+                    <div className="p-5 text-center text-[#6B6560]"><Loader className="animate-spin inline-block mr-2" size={16}/>Loading meetings...</div>
+                  ) : upcomingMeetings.length === 0 ? (
+                    <div className="p-5 text-center text-[#6B6560]">No upcoming meetings.</div>
+                  ) : (
+                    upcomingMeetings.map((meeting) => (
+                      <button
+                        key={meeting._id}
+                        type="button"
+                        onClick={() => navigate(`/meeting/${meeting.roomId}`)}
+                        className="flex items-center justify-between px-5 py-4 hover:bg-[#F5F2EE] transition-colors cursor-pointer w-full text-left group"
+                      >
+                        <div className="flex items-center">
+                          <div className="w-10 h-10 rounded-xl bg-[#7C3AED]/10 flex items-center justify-center mr-4 group-hover:bg-[#7C3AED]/20 transition-colors">
+                            <Video size={18} className="text-[#7C3AED]" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
+                            <div className="text-xs text-[#6B6560] mt-1">
+                              {new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}
+                              {meeting.meetingType && meeting.meetingType !== 'other' && ` • ${meeting.meetingType}`}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="bg-[#F5F2EE] text-[#6B6560] text-xs px-2.5 py-1 rounded-full">
+                            {meeting.participants?.length || 1} people
+                          </span>
+                          <span className="ml-3 text-xs text-[#7C3AED] hover:underline">Join Now</span>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              {/* Past Meetings */}
+              <section className="mb-10">
+                <div className="text-xs font-medium uppercase tracking-wider text-[#6B6560] mb-3">
+                  Past Meetings
+                </div>
+                <div className="bg-white border border-[#E8E4DD] rounded-2xl overflow-hidden divide-y divide-[#E8E4DD]">
+                  {loading ? (
+                    <div className="p-5 text-center text-[#6B6560]"><Loader className="animate-spin inline-block mr-2" size={16}/>Loading meetings...</div>
+                  ) : pastMeetings.length === 0 ? (
+                    <div className="p-5 text-center text-[#6B6560]">No past meetings found.</div>
+                  ) : (
+                    pastMeetings.map((meeting) => (
+                      <button
+                        key={meeting._id}
+                        type="button"
+                        onClick={() => navigate(`/meeting/${meeting.roomId}/summary`)}
+                        className="flex items-center justify-between px-5 py-4 hover:bg-[#F5F2EE] transition-colors cursor-pointer w-full text-left opacity-75 hover:opacity-100 group"
+                      >
+                        <div className="flex items-center">
+                          <div className="w-10 h-10 rounded-xl bg-[#6B6560]/10 flex items-center justify-center mr-4">
+                            <Video size={18} className="text-[#6B6560]" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
+                            <div className="text-xs text-[#6B6560] mt-1">
+                              {new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="bg-[#F5F2EE] text-[#6B6560] text-xs px-2.5 py-1 rounded-full">
+                            {meeting.participants?.length || 1} people
+                          </span>
+                          <span className="ml-3 text-xs text-[#6B6560] group-hover:text-[#1A1A1A]">View summary</span>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </section>
+            </>
+          )
+        })()}
 
         {showJoinModal && (
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -288,6 +375,15 @@ export const DashboardPage = () => {
             </div>
           </div>
         )}
+
+        <ScheduleMeetingModal 
+          isOpen={showScheduleModal} 
+          onClose={() => setShowScheduleModal(false)}
+          onSchedule={(newMeetingId) => {
+            setShowScheduleModal(false);
+            navigate(`/meeting/${newMeetingId}`);
+          }}
+        />
       </div>
     </div>
   )

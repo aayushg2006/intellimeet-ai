@@ -198,6 +198,25 @@ const socketHandler = (io) => {
       }
     });
 
+    // ─── END MEETING ───
+    socket.on('end-meeting', async (roomId) => {
+      if (socket.roomId === roomId && socket.isHost) {
+        try {
+          const meeting = await Meeting.findOne({ roomId });
+          if (meeting && meeting.status !== 'completed') {
+            meeting.status = 'completed';
+            meeting.endedAt = new Date();
+            await meeting.save();
+            console.log(`[Socket] Meeting ${roomId} ended by host`);
+            // Notify all users in the room that the meeting has ended
+            io.to(roomId).emit('meeting-ended');
+          }
+        } catch (error) {
+          console.error('[Socket] end-meeting error:', error);
+        }
+      }
+    });
+
     // ─── DISCONNECT ───
     socket.on('disconnect', () => {
       console.log(`[Socket] Disconnected: ${socket.id}`);

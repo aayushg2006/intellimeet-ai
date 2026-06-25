@@ -346,6 +346,13 @@ export const VideoRoom = () => {
       socket.on('user-screen-share', (data) => {
         setRemoteScreenSharer(data.sharing ? data.socketId : null)
       })
+
+      // When the host ends the meeting
+      socket.on('meeting-ended', () => {
+        alert('The host has ended the meeting.')
+        stopMedia()
+        navigate(`/meeting/${meetingId}/summary`)
+      })
     }
 
     setup()
@@ -398,6 +405,9 @@ export const VideoRoom = () => {
   // ─── HANDLERS ───
   const handleEndCall = () => {
     if (confirm('End the meeting?')) {
+      if (isHost && socketRef.current) {
+        socketRef.current.emit('end-meeting', meetingId)
+      }
       stopMedia()
       navigate(`/meeting/${meetingId}/summary`)
     }
