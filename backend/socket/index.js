@@ -1,9 +1,14 @@
 import Meeting from '../models/Meeting.js';
 import Message from '../models/Message.js';
+import Summary from '../models/Summary.js';
 import mongoose from 'mongoose';
+import aiService from '../services/aiService.js';
 
 // In-memory waiting room: roomId -> [{ socketId, userObj }]
 const waitingRooms = {};
+
+// In-memory transcripts: roomId -> [ "sentence 1", "sentence 2" ]
+const roomTranscripts = {};
 
 const socketHandler = (io) => {
   io.on('connection', (socket) => {
@@ -198,6 +203,22 @@ const socketHandler = (io) => {
       }
     });
 
+    // ─── AI AUDIO CHUNK ───
+    // Receives a transcribed line of text from a user's browser
+    socket.on('audio-transcription', (roomId, text) => {
+      try {
+        if (!roomTranscripts[roomId]) roomTranscripts[roomId] = [];
+        
+        if (text && text.trim().length > 0) {
+          const transcriptLine = `${socket.userObj?.name || 'Guest'}: ${text}`;
+          roomTranscripts[roomId].push(transcriptLine);
+          io.to(roomId).emit('transcript-update', transcriptLine);
+        }
+      } catch (err) {
+        console.error('Error handling transcript chunk:', err);
+      }
+    });
+
     // ─── END MEETING ───
     socket.on('end-meeting', async (roomId) => {
       if (socket.roomId === roomId && socket.isHost) {
@@ -208,8 +229,46 @@ const socketHandler = (io) => {
             meeting.endedAt = new Date();
             await meeting.save();
             console.log(`[Socket] Meeting ${roomId} ended by host`);
+            
             // Notify all users in the room that the meeting has ended
             io.to(roomId).emit('meeting-ended');
+
+            // --- AI Summary Generation ---
+            if (roomTranscripts[roomId] && roomTranscripts[roomId].length > 0) {
+              const fullTranscriptText = roomTranscripts[roomId].join('\n');
+              console.log(`[AI] Generating summary for meeting ${roomId}...`);
+              
+              // Find or create the summary doc
+              let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+              if (!summaryDoc) {
+                summaryDoc = new Summary({
+                  meetingId: meeting._id,
+                  organizationId: meeting.organizationId,
+                  title: meeting.title,
+                  date: meeting.createdAt.toISOString().split('T')[0],
+                  transcript: roomTranscripts[roomId]
+                });
+              } else {
+                summaryDoc.transcript = roomTranscripts[roomId];
+              }
+              await summaryDoc.save();
+
+              // Call Ollama for summary and action items
+              const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
+              
+              summaryDoc.summary = summary;
+              summaryDoc.actionItems = actionItems.map((item, index) => ({
+                id: index + 1,
+                task: item,
+                assignee: 'Unassigned',
+                status: 'pending'
+              }));
+              await summaryDoc.save();
+              console.log(`[AI] Summary saved for meeting ${roomId}.`);
+              
+              // Clear memory
+              delete roomTranscripts[roomId];
+            }
           }
         } catch (error) {
           console.error('[Socket] end-meeting error:', error);

@@ -146,6 +146,9 @@ export const VideoRoom = () => {
   const [showReactions, setShowReactions] = useState(false)
   const [pinnedId, setPinnedId] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [liveTranscripts, setLiveTranscripts] = useState([])
+  const [captions, setCaptions] = useState([])
+  const [interimCaption, setInterimCaption] = useState('')
 
   const {
     localStream,
@@ -185,11 +188,17 @@ export const VideoRoom = () => {
   const [remoteReactions, setRemoteReactions] = useState({}) // socketId -> emoji
   const [remoteHands, setRemoteHands] = useState({}) // socketId -> boolean
   const [remoteScreenSharer, setRemoteScreenSharer] = useState(null) // socketId of remote screen sharer
+  const recognitionRef = useRef(null)
+  const isAudioEnabledRef = useRef(isAudioEnabled)
 
-  // Keep isHostRef in sync
+  // Keep refs in sync
   useEffect(() => {
     isHostRef.current = isHost
   }, [isHost])
+
+  useEffect(() => {
+    isAudioEnabledRef.current = isAudioEnabled
+  }, [isAudioEnabled])
 
   // ─── INITIALIZE MEDIA ON MOUNT ───
   useEffect(() => {
@@ -353,6 +362,62 @@ export const VideoRoom = () => {
         stopMedia()
         navigate(`/meeting/${meetingId}/summary`)
       })
+
+      // Live Transcripts
+      socket.on('transcript-update', (line) => {
+        setCaptions((prev) => [...prev, line].slice(-5))
+      })
+
+      // Setup Speech Recognition
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition()
+        recognition.continuous = true
+        recognition.interimResults = true
+        recognition.lang = 'en-US'
+
+        recognition.onresult = (event) => {
+          let currentInterim = ''
+          let finalTranscripts = []
+
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscripts.push(event.results[i][0].transcript)
+            } else {
+              currentInterim += event.results[i][0].transcript
+            }
+          }
+
+          if (finalTranscripts.length > 0 && socketRef.current) {
+            finalTranscripts.forEach(text => {
+              // Send final transcribed text to backend to be shared and saved
+              socketRef.current.emit('audio-transcription', meetingId, text)
+            })
+          }
+          setInterimCaption(currentInterim)
+        }
+
+        recognition.onerror = (event) => {
+          console.error('Speech recognition error:', event.error)
+        }
+        
+        // Handle restarting if it stops unexpectedly (Chrome stops automatically after a while)
+        recognition.onend = () => {
+          if (!cancelled && isAudioEnabledRef.current) {
+            // Need a slight delay to avoid InvalidStateError synchronous restarts
+            setTimeout(() => {
+              if (!cancelled && isAudioEnabledRef.current) {
+                try { recognition.start() } catch (e) {}
+              }
+            }, 250)
+          }
+        }
+
+        recognitionRef.current = recognition
+        if (isAudioEnabledRef.current) {
+          try { recognition.start() } catch (e) {}
+        }
+      }
     }
 
     setup()
@@ -363,8 +428,11 @@ export const VideoRoom = () => {
         socketRef.current.disconnect()
         socketRef.current = null
       }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop() } catch (e) {}
+      }
     }
-  }, [meetingId]) // Only depends on meetingId — stable!
+  }, [meetingId])
 
   // ─── TIMER ───
   useEffect(() => {
@@ -403,10 +471,16 @@ export const VideoRoom = () => {
   }, [isScreenSharing])
 
   // ─── HANDLERS ───
+  const endMeeting = () => {
+    if (socketRef.current) {
+      socketRef.current.emit('end-meeting', meetingId)
+    }
+  }
+
   const handleEndCall = () => {
     if (confirm('End the meeting?')) {
-      if (isHost && socketRef.current) {
-        socketRef.current.emit('end-meeting', meetingId)
+      if (isHost) {
+        endMeeting()
       }
       stopMedia()
       navigate(`/meeting/${meetingId}/summary`)
@@ -765,10 +839,26 @@ export const VideoRoom = () => {
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 min-h-0 flex flex-col">
+        <div className="flex-1 min-h-0 flex flex-col relative">
           <div className="flex-1 min-h-0 overflow-hidden p-4">
             {renderLayoutContent()}
           </div>
+          
+          {/* Live Captions Overlay */}
+          {(captions.length > 0 || interimCaption) && (
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-full px-12">
+              {captions.map((cap, idx) => (
+                <div key={idx} className="bg-black/70 backdrop-blur-sm text-white px-4 py-2 rounded-xl text-lg font-medium text-center shadow-lg border border-white/10 max-w-2xl w-max animate-in fade-in slide-in-from-bottom-2">
+                  {cap}
+                </div>
+              ))}
+              {interimCaption && (
+                <div className="bg-black/40 backdrop-blur-sm text-white/80 px-4 py-2 rounded-xl text-lg font-medium text-center shadow-lg border border-white/10 max-w-2xl w-max italic animate-pulse">
+                  {interimCaption}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {showParticipants && (

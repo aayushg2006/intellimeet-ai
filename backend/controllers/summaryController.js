@@ -1,5 +1,6 @@
 import Meeting from '../models/Meeting.js';
 import Summary from '../models/Summary.js';
+import aiService from '../services/aiService.js';
 
 export const getSummaryByMeeting = async (req, res) => {
   try {
@@ -49,6 +50,41 @@ export const createSummary = async (req, res) => {
     const createdSummary = await summary.save();
     res.status(201).json(createdSummary);
   } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const generatePendingSummary = async (req, res) => {
+  try {
+    let meeting = await Meeting.findOne({ roomId: req.params.meetingId });
+    if (!meeting && req.params.meetingId.match(/^[0-9a-fA-F]{24}$/)) {
+      meeting = await Meeting.findById(req.params.meetingId);
+    }
+    if (!meeting) {
+      return res.status(404).json({ message: 'Meeting not found' });
+    }
+
+    const summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+    if (!summaryDoc || !summaryDoc.transcript || summaryDoc.transcript.length === 0) {
+      return res.status(400).json({ message: 'No transcript available to generate summary.' });
+    }
+
+    // Call AI Service
+    const fullTranscriptText = summaryDoc.transcript.join('\n');
+    const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
+
+    summaryDoc.summary = summary;
+    summaryDoc.actionItems = actionItems.map((item, index) => ({
+      id: index + 1,
+      task: item,
+      assignee: 'Unassigned',
+      status: 'pending'
+    }));
+
+    await summaryDoc.save();
+    res.json({ message: 'Summary generated successfully' });
+  } catch (error) {
+    console.error('Generate summary error:', error);
     res.status(500).json({ message: error.message });
   }
 };
