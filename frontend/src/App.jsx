@@ -9,6 +9,10 @@ import { MeetingSummary } from './pages/MeetingSummary'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { TeamWorkspace } from './pages/TeamWorkspace'
 import { AnalyticsPage } from './pages/AnalyticsPage'
+import { AuthCallback } from './pages/AuthCallback'
+import { SettingsPage } from './pages/SettingsPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -28,6 +32,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <Router>
         <Routes>
+          {/* Public Auth Routes */}
           <Route
             path="/login"
             element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />}
@@ -36,6 +41,13 @@ function App() {
             path="/register"
             element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <RegisterPage />}
           />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+          {/* OAuth Callback (must be public) */}
+          <Route path="/auth/callback" element={<AuthCallback />} />
+
+          {/* Protected Routes */}
           <Route
             path="/dashboard"
             element={
@@ -68,7 +80,6 @@ function App() {
               </ProtectedRoute>
             }
           />
-
           <Route
             path="/workspace"
             element={
@@ -85,6 +96,16 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Fallback Routes */}
           <Route
             path="/"
             element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />}

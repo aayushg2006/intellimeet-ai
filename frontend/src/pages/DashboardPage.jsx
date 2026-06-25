@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader } from 'lucide-react'
+import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader, Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
 
@@ -89,16 +89,27 @@ export const DashboardPage = () => {
               </button>
             </div>
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#7C3AED] text-white text-sm font-medium flex items-center justify-center">
-                {user?.name
-                  ? user.name
-                      .split(' ')
-                      .map((part) => part[0])
-                      .join('')
-                      .toUpperCase()
-                  : 'U'}
-              </div>
+              {user?.avatar ? (
+                <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-[#7C3AED] text-white text-sm font-medium flex items-center justify-center">
+                  {user?.name
+                    ? user.name
+                        .split(' ')
+                        .map((part) => part[0])
+                        .join('')
+                        .toUpperCase()
+                    : 'U'}
+                </div>
+              )}
               <div className="text-sm text-[#6B6560]">{user?.name || 'User'}</div>
+              <button
+                onClick={() => navigate('/settings')}
+                title="Settings"
+                className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-[#6B6560] hover:text-[#7C3AED] transition-colors"
+              >
+                <Settings size={16} />
+              </button>
               <button
                 onClick={handleLogout}
                 title="Logout"

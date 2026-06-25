@@ -98,6 +98,43 @@ export const MeetingLobby = () => {
     }
   }
 
+  const handleDeviceSwitch = async (deviceId, kind) => {
+    try {
+      // Stop existing preview tracks of this kind
+      if (previewStreamRef.current) {
+        const trackKind = kind === 'audio' ? 'audio' : 'video'
+        previewStreamRef.current.getTracks()
+          .filter(t => t.kind === trackKind)
+          .forEach(t => { t.stop(); previewStreamRef.current.removeTrack(t) })
+      }
+
+      // Acquire new stream with the selected device
+      const constraints = kind === 'audio'
+        ? { audio: { deviceId: { exact: deviceId } } }
+        : { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } }
+
+      const newStream = await navigator.mediaDevices.getUserMedia(constraints)
+      const newTrack = newStream.getTracks()[0]
+
+      if (newTrack && previewStreamRef.current) {
+        previewStreamRef.current.addTrack(newTrack)
+        // Re-attach to video element
+        if (videoRef.current) {
+          videoRef.current.srcObject = previewStreamRef.current
+        }
+      }
+
+      if (kind === 'audio') {
+        setSelectedAudio(deviceId)
+      } else {
+        setSelectedVideo(deviceId)
+      }
+    } catch (err) {
+      console.error('[Lobby] Device switch error:', err)
+      setError('Failed to switch device')
+    }
+  }
+
   const handleJoinMeeting = () => {
     if (!participantName.trim()) {
       alert('Please enter your name first')
