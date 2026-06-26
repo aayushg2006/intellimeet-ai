@@ -90,6 +90,10 @@ export const createMeeting = async (req, res) => {
     // Populate host before returning so the frontend gets { host: { _id, name } }
     await createdMeeting.populate('host', '_id name email');
     
+    // Invalidate the meetings cache for this user/org
+    const cacheKey = `meetings:user:${req.user._id}:org:${organizationId || 'personal'}`;
+    await redis.del(cacheKey);
+
     res.status(201).json(createdMeeting);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -101,11 +105,21 @@ export const updateMeeting = async (req, res) => {
     const meeting = await Meeting.findById(req.params.id);
 
     if (meeting) {
+      // Authorization Check
+      if (meeting.host.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'Not authorized to update this meeting' });
+      }
+
       meeting.title = req.body.title || meeting.title;
       meeting.description = req.body.description || meeting.description;
       meeting.status = req.body.status || meeting.status;
 
       const updatedMeeting = await meeting.save();
+      
+      // Invalidate cache
+      const cacheKey = `meetings:user:${req.user._id}:org:${meeting.organizationId || 'personal'}`;
+      await redis.del(cacheKey);
+
       res.json(updatedMeeting);
     } else {
       res.status(404).json({ message: 'Meeting not found' });

@@ -7,7 +7,7 @@ import axios from 'axios'
 export const MeetingSummary = () => {
   const navigate = useNavigate()
   const { meetingId } = useParams()
-  const { user } = useAuthStore()
+  const { user, token } = useAuthStore()
 
   const [summaryData, setSummaryData] = useState(null)
   const [actionItems, setActionItems] = useState([])
@@ -15,7 +15,6 @@ export const MeetingSummary = () => {
   const [copied, setCopied] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [loading, setLoading] = useState(true)
-  const { token } = useAuthStore()
 
   const fetchSummary = async () => {
     try {
@@ -27,8 +26,10 @@ export const MeetingSummary = () => {
         setSummaryData(data)
         setActionItems(data.actionItems || [])
       }
+      return data
     } catch (error) {
       console.error('Error fetching summary:', error)
+      return null
     } finally {
       setLoading(false)
     }
@@ -37,33 +38,19 @@ export const MeetingSummary = () => {
   useEffect(() => {
     let pollingInterval;
 
-    const checkSummaryStatus = async () => {
-      try {
-        const res = await axios.get(`/api/summaries/${meetingId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const data = res.data
-        if (data) {
-          setSummaryData(data)
-          setActionItems(data.actionItems || [])
-
-          // If the summary is still being generated, it might be empty. Poll every 3 seconds.
-          if (!data.summary && data.transcript?.length > 0) {
-            if (!pollingInterval) {
-              pollingInterval = setInterval(checkSummaryStatus, 3000);
-            }
-          } else {
-            if (pollingInterval) clearInterval(pollingInterval);
-          }
+    const poll = async () => {
+      const data = await fetchSummary()
+      // Keep polling if transcript exists but summary hasn't been generated yet
+      if (data && (!data.summary || data.summary === 'No AI summary generated yet.') && data.transcript?.length > 0) {
+        if (!pollingInterval) {
+          pollingInterval = setInterval(poll, 3000);
         }
-      } catch (error) {
-        console.error('Error fetching summary:', error)
-      } finally {
-        setLoading(false)
+      } else {
+        if (pollingInterval) clearInterval(pollingInterval);
       }
     }
 
-    checkSummaryStatus()
+    poll()
 
     return () => {
       if (pollingInterval) clearInterval(pollingInterval);
@@ -96,7 +83,7 @@ export const MeetingSummary = () => {
       await axios.post(`/api/summaries/${meetingId}/generate`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       })
-      fetchSummary()
+      await fetchSummary()
     } catch (err) {
       console.error(err)
       alert('Failed to generate summary: ' + (err.response?.data?.message || err.message))
@@ -223,7 +210,7 @@ export const MeetingSummary = () => {
                         {item.task}
                       </p>
                       <p className="text-xs text-[#6B6560] mt-1">
-                        {item.assignee} · Due {item.due}
+                        {item.assignee || 'Unassigned'} · {item.status || 'pending'}
                       </p>
                     </div>
                     <span
@@ -233,7 +220,7 @@ export const MeetingSummary = () => {
                           : 'bg-[#FEF3C7] text-[#D97706]'
                       }`}
                     >
-                      {item.due}
+                      {item.status || 'pending'}
                     </span>
                   </div>
                 ))}
@@ -290,9 +277,6 @@ export const MeetingSummary = () => {
                     </div>
                     <div>
                       <p className="text-sm text-[#1A1A1A]">{participant}</p>
-                      {participant === 'You' ? (
-                        <p className="text-xs text-[#6B6560]">You</p>
-                      ) : null}
                     </div>
                   </div>
                 ))}

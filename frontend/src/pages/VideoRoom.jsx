@@ -146,9 +146,9 @@ export const VideoRoom = () => {
   const [showReactions, setShowReactions] = useState(false)
   const [pinnedId, setPinnedId] = useState(null)
   const [copied, setCopied] = useState(false)
-  const [liveTranscripts, setLiveTranscripts] = useState([])
   const [captions, setCaptions] = useState([])
   const [interimCaption, setInterimCaption] = useState('')
+  const [speechUnsupported, setSpeechUnsupported] = useState(false)
 
   const {
     localStream,
@@ -417,6 +417,8 @@ export const VideoRoom = () => {
         if (isAudioEnabledRef.current) {
           try { recognition.start() } catch (e) {}
         }
+      } else {
+        setSpeechUnsupported(true)
       }
     }
 
@@ -478,7 +480,8 @@ export const VideoRoom = () => {
   }
 
   const handleEndCall = () => {
-    if (confirm('End the meeting?')) {
+    const msg = isHost ? 'End the meeting for everyone?' : 'Leave the meeting?'
+    if (confirm(msg)) {
       if (isHost) {
         endMeeting()
       }
@@ -844,6 +847,14 @@ export const VideoRoom = () => {
             {renderLayoutContent()}
           </div>
           
+          {/* Speech Recognition Unsupported Warning */}
+          {speechUnsupported && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-amber-500/90 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg backdrop-blur-sm flex items-center gap-2">
+              ⚠️ Live transcription is not supported in this browser. Use Chrome for best results.
+              <button onClick={() => setSpeechUnsupported(false)} className="ml-2 text-white/80 hover:text-white">✕</button>
+            </div>
+          )}
+
           {/* Live Captions Overlay */}
           {(captions.length > 0 || interimCaption) && (
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-full px-12">

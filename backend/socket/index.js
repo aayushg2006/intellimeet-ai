@@ -203,9 +203,9 @@ const socketHandler = (io) => {
       }
     });
 
-    // ─── AI AUDIO CHUNK ───
+    // ─── AI AUDIO TRANSCRIPTION ───
     // Receives a transcribed line of text from a user's browser
-    socket.on('audio-transcription', (roomId, text) => {
+    socket.on('audio-transcription', async (roomId, text) => {
       try {
         if (!roomTranscripts[roomId]) roomTranscripts[roomId] = [];
         
@@ -213,6 +213,31 @@ const socketHandler = (io) => {
           const transcriptLine = `${socket.userObj?.name || 'Guest'}: ${text}`;
           roomTranscripts[roomId].push(transcriptLine);
           io.to(roomId).emit('transcript-update', transcriptLine);
+
+          // Persist to MongoDB incrementally so transcripts survive server restarts
+          try {
+            const meeting = await Meeting.findOne({ roomId });
+            if (meeting) {
+              let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+              if (!summaryDoc) {
+                summaryDoc = new Summary({
+                  meetingId: meeting._id,
+                  organizationId: meeting.organizationId,
+                  title: meeting.title,
+                  date: meeting.createdAt.toISOString().split('T')[0],
+                  transcript: [transcriptLine]
+                });
+                await summaryDoc.save();
+              } else {
+                await Summary.updateOne(
+                  { _id: summaryDoc._id },
+                  { $push: { transcript: transcriptLine } }
+                );
+              }
+            }
+          } catch (dbErr) {
+            console.error('[Socket] Failed to persist transcript line:', dbErr.message);
+          }
         }
       } catch (err) {
         console.error('Error handling transcript chunk:', err);
@@ -234,24 +259,25 @@ const socketHandler = (io) => {
             io.to(roomId).emit('meeting-ended');
 
             // --- AI Summary Generation ---
-            if (roomTranscripts[roomId] && roomTranscripts[roomId].length > 0) {
-              const fullTranscriptText = roomTranscripts[roomId].join('\n');
+            // Read transcript from DB (survives server restarts)
+            let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+            const transcript = summaryDoc?.transcript || roomTranscripts[roomId] || [];
+            
+            if (transcript.length > 0) {
+              const fullTranscriptText = transcript.join('\n');
               console.log(`[AI] Generating summary for meeting ${roomId}...`);
               
-              // Find or create the summary doc
-              let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+              // Ensure summary doc exists
               if (!summaryDoc) {
                 summaryDoc = new Summary({
                   meetingId: meeting._id,
                   organizationId: meeting.organizationId,
                   title: meeting.title,
                   date: meeting.createdAt.toISOString().split('T')[0],
-                  transcript: roomTranscripts[roomId]
+                  transcript: transcript
                 });
-              } else {
-                summaryDoc.transcript = roomTranscripts[roomId];
+                await summaryDoc.save();
               }
-              await summaryDoc.save();
 
               // Call Ollama for summary and action items
               const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
@@ -266,7 +292,7 @@ const socketHandler = (io) => {
               await summaryDoc.save();
               console.log(`[AI] Summary saved for meeting ${roomId}.`);
               
-              // Clear memory
+              // Clear in-memory copy
               delete roomTranscripts[roomId];
             }
           }

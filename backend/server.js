@@ -14,6 +14,15 @@ import { errorHandler, notFound } from './middleware/errorHandler.js';
 // Load environment variables
 dotenv.config();
 
+// ─── PROCESS ERROR HANDLERS ───
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Fatal] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Fatal] Uncaught Exception:', err);
+});
+
 dns.setServers([
   "8.8.8.8",
   "8.8.4.4"
@@ -99,38 +108,13 @@ app.use(errorHandler);
 // ─── DATABASE & SERVER ───
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
-const MAX_PORT_ATTEMPTS = 10;
-
-const startServer = (port, attempt = 1) => {
-  const onError = (err) => {
-    server.off('listening', onListening);
-
-    if (err.code === 'EADDRINUSE' && attempt < MAX_PORT_ATTEMPTS) {
-      const nextPort = Number(port) + 1;
-      console.warn(`Port ${port} is in use, trying ${nextPort}...`);
-      startServer(nextPort, attempt + 1);
-      return;
-    }
-
-    console.error('Server start error:', err);
-  };
-
-  const onListening = () => {
-    server.off('error', onError);
-    const address = server.address();
-    const activePort = typeof address === 'object' && address ? address.port : port;
-    console.log(`Server is running on port ${activePort}`);
-  };
-
-  server.once('error', onError);
-  server.once('listening', onListening);
-  server.listen(port);
-};
 
 mongoose.connect(MONGODB_URI)
   .then(() => {
     console.log('Connected to MongoDB');
-    startServer(PORT);
+    server.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
   })
   .catch((err) => {
     console.error('MongoDB connection error:', err);

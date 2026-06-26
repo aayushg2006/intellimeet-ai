@@ -1,50 +1,9 @@
-import { pipeline, env } from '@xenova/transformers';
 import axios from 'axios';
-
-// Disable downloading models from remote if we want to strictly use local?
-// By default, Transformers.js will download the model to the local cache on the first run.
-// We'll use 'Xenova/whisper-tiny.en' which is very fast and small (good for real-time).
-env.allowLocalModels = true;
 
 class AIService {
   constructor() {
-    this.transcriber = null;
     this.ollamaUrl = 'http://localhost:11434/api/generate';
-    this.modelName = 'qwen2.5:3b'; // Updated as per user instruction
-  }
-
-  /**
-   * Initializes the Whisper model (loads it into memory)
-   */
-  async initTranscriber() {
-    if (!this.transcriber) {
-      console.log('Initializing local Whisper model...');
-      this.transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
-      console.log('Whisper model loaded successfully.');
-    }
-  }
-
-  /**
-   * Transcribes a raw 16kHz PCM audio buffer (Float32Array)
-   * @param {Float32Array} audioData - The 16kHz audio data
-   * @returns {String} The transcribed text
-   */
-  async transcribeAudio(audioData) {
-    if (!this.transcriber) {
-      await this.initTranscriber();
-    }
-    try {
-      const result = await this.transcriber(audioData, {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        language: 'english',
-        task: 'transcribe',
-      });
-      return result.text.trim();
-    } catch (error) {
-      console.error('Transcription error:', error);
-      return '';
-    }
+    this.modelName = 'qwen2.5:3b';
   }
 
   /**
@@ -85,8 +44,10 @@ ${transcript}
         prompt: prompt,
         stream: false,
         options: {
-          temperature: 0.3, // Keep it factual
+          temperature: 0.3,
         }
+      }, {
+        timeout: 120000 // 2 minute timeout — Ollama on CPU can be slow
       });
 
       const resultText = response.data.response || '';
@@ -113,7 +74,11 @@ ${transcript}
 
       return { summary, actionItems };
     } catch (error) {
-      console.error('Ollama generation error:', error.message);
+      if (error.code === 'ECONNABORTED') {
+        console.error('Ollama timed out after 2 minutes.');
+      } else {
+        console.error('Ollama generation error:', error.message);
+      }
       return {
         summary: "Failed to generate summary. Is Ollama running locally?",
         actionItems: []

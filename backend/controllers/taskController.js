@@ -40,6 +40,11 @@ export const updateTask = async (req, res) => {
     const task = await Task.findById(req.params.id);
 
     if (task) {
+      // Authorization Check: Only assignee can update the task
+      if (task.assignee.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'Not authorized to update this task' });
+      }
+
       task.title = req.body.title || task.title;
       task.description = req.body.description || task.description;
       task.status = req.body.status || task.status;
