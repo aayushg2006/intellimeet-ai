@@ -2,11 +2,14 @@ import Task from '../models/Task.js';
 
 export const getTasks = async (req, res) => {
   try {
-    const { organizationId } = req.query;
-    const query = { 
-      assignee: req.user._id,
-      organizationId: organizationId || null
-    };
+    const { organizationId, meetingId } = req.query;
+    const query = {};
+    if (meetingId) {
+      query.meetingId = meetingId;
+    } else {
+      query.assignee = req.user._id;
+      query.organizationId = organizationId || null;
+    }
     const tasks = await Task.find(query).populate('assignee', 'name');
     res.json(tasks);
   } catch (error) {

@@ -22,6 +22,7 @@ const meetingSchema = new mongoose.Schema({
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     uploadedAt: { type: Date, default: Date.now },
   }],
+  notes: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now }
 });
 

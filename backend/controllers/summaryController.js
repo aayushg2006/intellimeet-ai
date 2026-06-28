@@ -36,7 +36,8 @@ export const getSummaryByMeeting = async (req, res) => {
       actionItems: summary?.actionItems || [],
       transcript: summary?.transcript || [],
       attachments: meeting.attachments || [],
-      recordingKey: meeting.recordingKey || ''
+      recordingKey: meeting.recordingKey || '',
+      notes: meeting.notes || ''
     };
 
     res.json(responseData);

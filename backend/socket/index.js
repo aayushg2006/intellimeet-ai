@@ -185,6 +185,10 @@ const socketHandler = (io) => {
             roomId: msgData.roomId,
             sender: msgData.sender,
             text: msgData.text,
+            type: msgData.type || 'text',
+            fileUrl: msgData.fileUrl,
+            fileName: msgData.fileName,
+            fileSize: msgData.fileSize,
           });
           await message.save();
           const populated = await Message.findById(message._id).populate('sender', 'name avatar');
@@ -195,11 +199,28 @@ const socketHandler = (io) => {
             _id: Date.now().toString(),
             sender: { name: socket.userObj?.name || 'Guest', _id: null },
             text: msgData.text,
+            type: msgData.type || 'text',
+            fileUrl: msgData.fileUrl,
+            fileName: msgData.fileName,
+            fileSize: msgData.fileSize,
             createdAt: new Date(),
           });
         }
       } catch (error) {
         console.error('[Socket] chat-message error:', error);
+      }
+    });
+
+    // ─── SHARED NOTES ───
+    socket.on('note-update', async (roomId, notes) => {
+      try {
+        if (!roomId) return;
+        socket.to(roomId).emit('note-update', notes);
+
+        // Throttle saving to DB or just save every time (since it's a small app)
+        await Meeting.updateOne({ roomId }, { $set: { notes } });
+      } catch (error) {
+        console.error('[Socket] note-update error:', error);
       }
     });
 

@@ -28,6 +28,9 @@ import {
   Circle,
   Paperclip,
   FileIcon,
+  FileText,
+  CheckSquare,
+  Plus
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
@@ -137,6 +140,11 @@ export const VideoRoom = () => {
   const [elapsedTime, setElapsedTime] = useState(0)
   const [showParticipants, setShowParticipants] = useState(false)
   const [showChat, setShowChat] = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
+  const [showTasks, setShowTasks] = useState(false)
+  const [sharedNotes, setSharedNotes] = useState('')
+  const [tasks, setTasks] = useState([])
+  const [newTaskTitle, setNewTaskTitle] = useState('')
   const [messages, setMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [hasUnread, setHasUnread] = useState(false)
@@ -243,6 +251,33 @@ export const VideoRoom = () => {
       if (cancelled || !meetingData) return
 
       setMeetingInfo(meetingData)
+      if (meetingData.notes) setSharedNotes(meetingData.notes)
+
+      // 1.5 Fetch past messages and tasks
+      try {
+        const tokenStore = localStorage.getItem('auth-storage')
+        const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
+        const [msgRes, taskRes] = await Promise.all([
+          axios.get(`/api/messages/${meetingId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
+          axios.get(`/api/tasks?meetingId=${meetingId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        ])
+        
+        const pastMessages = msgRes.data.map(msg => ({
+          id: msg._id,
+          sender: msg.sender?.name || 'Unknown',
+          text: msg.text,
+          type: msg.type || 'text',
+          fileUrl: msg.fileUrl,
+          fileName: msg.fileName,
+          fileSize: msg.fileSize,
+          time: new Date(msg.createdAt).toLocaleTimeString(),
+          isOwn: String(msg.sender?._id) === String(userId),
+        }))
+        setMessages(pastMessages)
+        setTasks(taskRes.data)
+      } catch (err) {
+        console.error('[VideoRoom] Error fetching history:', err)
+      }
 
       // 2. Determine host status
       const hostId = meetingData.host?._id || meetingData.host
@@ -309,11 +344,20 @@ export const VideoRoom = () => {
             id: msg._id,
             sender: msg.sender?.name || 'Unknown',
             text: msg.text,
+            type: msg.type || 'text',
+            fileUrl: msg.fileUrl,
+            fileName: msg.fileName,
+            fileSize: msg.fileSize,
             time: new Date(msg.createdAt).toLocaleTimeString(),
             isOwn: String(msg.sender?._id) === String(userId),
           },
         ])
         setHasUnread(true)
+      })
+
+      // Shared notes
+      socket.on('note-update', (newNotes) => {
+        setSharedNotes(newNotes)
       })
 
       // WebRTC events
@@ -725,19 +769,17 @@ export const VideoRoom = () => {
         },
       })
 
-      const fileInfo = {
-        fileName: res.data.fileName,
-        url: res.data.url,
-        fileType: res.data.fileType,
-        fileSize: res.data.fileSize,
-        uploadedBy: displayName,
-      }
-
-      setSharedFiles((prev) => [...prev, fileInfo])
-
-      // Notify other participants via socket
+      // Emit as a chat message of type 'file'
       if (socketRef.current) {
-        socketRef.current.emit('file-shared', { roomId: meetingId, fileInfo })
+        socketRef.current.emit('chat-message', {
+          roomId: meetingId,
+          sender: userId,
+          text: `Shared a file: ${res.data.fileName}`,
+          type: 'file',
+          fileUrl: res.data.url,
+          fileName: res.data.fileName,
+          fileSize: res.data.fileSize,
+        })
       }
     } catch (err) {
       console.error('[File Share] Upload failed:', err)
@@ -1117,43 +1159,37 @@ export const VideoRoom = () => {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
-              {messages.length === 0 && sharedFiles.length === 0 ? (
+              {messages.length === 0 ? (
                 <div className="text-sm text-white/30 text-center mt-8">No messages or files yet. Say hello!</div>
               ) : (
                 <>
                   {messages.map((message) => (
                     <div key={message.id} className={`flex flex-col max-w-full ${message.isOwn ? 'items-end' : 'items-start'}`}>
-                      <div className={`${message.isOwn ? 'bg-[#7C3AED] text-white rounded-2xl rounded-br-sm' : 'bg-white/10 text-white rounded-2xl rounded-bl-sm'} px-3 py-2 text-sm`}>
+                      <div className={`${message.isOwn ? 'bg-[#7C3AED] text-white rounded-2xl rounded-br-sm' : 'bg-white/10 text-white rounded-2xl rounded-bl-sm'} px-3 py-2 text-sm max-w-full`}>
                         <p className="text-xs text-white/40 mb-1">{message.sender}</p>
-                        <p>{message.text}</p>
+                        {message.type === 'file' ? (
+                          <div className="flex items-center gap-3 bg-black/20 rounded-xl p-2 mt-1">
+                            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                              <FileIcon size={18} className="text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0 pr-2">
+                              <p className="text-sm font-medium truncate" title={message.fileName}>{message.fileName}</p>
+                              <p className="text-xs text-white/40">{(message.fileSize / 1024 / 1024).toFixed(2)} MB</p>
+                            </div>
+                            <a
+                              href={message.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                            >
+                              View
+                            </a>
+                          </div>
+                        ) : (
+                          <p className="break-words">{message.text}</p>
+                        )}
                       </div>
                       <span className="text-xs text-white/30 mt-1">{message.time}</span>
-                    </div>
-                  ))}
-                  
-                  {/* Shared Files Display */}
-                  {sharedFiles.map((file, idx) => (
-                    <div key={`file-${idx}`} className={`flex flex-col max-w-full items-start mt-2`}>
-                      <div className="bg-white/5 border border-white/10 text-white rounded-2xl px-3 py-3 text-sm w-full">
-                        <p className="text-xs text-white/40 mb-2">{file.uploadedBy} shared a file</p>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-                            <FileIcon size={18} className="text-[#7C3AED]" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate" title={file.fileName}>{file.fileName}</p>
-                            <p className="text-xs text-white/40">{(file.fileSize / 1024 / 1024).toFixed(2)} MB</p>
-                          </div>
-                          <a
-                            href={file.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="bg-[#7C3AED]/20 text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition"
-                          >
-                            View
-                          </a>
-                        </div>
-                      </div>
                     </div>
                   ))}
                 </>
@@ -1162,7 +1198,7 @@ export const VideoRoom = () => {
             <div className="p-3 border-t border-white/10 flex gap-2 items-center">
               <button 
                 onClick={() => fileInputRef.current?.click()} 
-                className="text-white/40 hover:text-white transition p-2 bg-white/5 rounded-xl"
+                className="text-white/40 hover:text-white transition p-2 bg-white/5 rounded-xl flex-shrink-0"
                 title="Share file"
               >
                 <Paperclip size={18} />
@@ -1184,11 +1220,116 @@ export const VideoRoom = () => {
                     handleSendMessage()
                   }
                 }}
-                className="flex-1 bg-white/10 text-white text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:bg-white/15 placeholder-white/30"
+                className="flex-1 min-w-0 bg-white/10 text-white text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:bg-white/15 placeholder-white/30"
                 placeholder="Type a message..."
               />
-              <button onClick={handleSendMessage} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl p-2.5 transition" title="Send Message">
+              <button onClick={handleSendMessage} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl p-2.5 transition flex-shrink-0" title="Send Message">
                 <Send size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showNotes && (
+          <div className="w-80 bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-white">Shared Notes</h2>
+                <p className="text-xs text-white/40">Collaborate with everyone</p>
+              </div>
+              <button onClick={() => setShowNotes(false)} className="text-white/40 hover:text-white transition">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 p-4 min-h-0">
+              <textarea
+                value={sharedNotes}
+                onChange={(e) => {
+                  setSharedNotes(e.target.value)
+                  if (socketRef.current) socketRef.current.emit('note-update', meetingId, e.target.value)
+                }}
+                className="w-full h-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white focus:outline-none focus:border-[#7C3AED]/50 resize-none placeholder-white/30"
+                placeholder="Type notes here... everyone in the room will see them."
+              />
+            </div>
+          </div>
+        )}
+
+        {showTasks && (
+          <div className="w-80 bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-white">Action Items</h2>
+                <p className="text-xs text-white/40">Track tasks from this meeting</p>
+              </div>
+              <button onClick={() => setShowTasks(false)} className="text-white/40 hover:text-white transition">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+              {tasks.length === 0 ? (
+                <div className="text-sm text-white/30 text-center mt-8">No tasks created yet.</div>
+              ) : (
+                tasks.map((task) => (
+                  <div key={task._id} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <p className="text-sm font-medium text-white mb-1">{task.title}</p>
+                    <p className="text-xs text-white/50">Status: {task.status}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="p-3 border-t border-white/10 flex gap-2">
+              <input
+                type="text"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (!newTaskTitle.trim()) return
+                    try {
+                      const tokenStore = localStorage.getItem('auth-storage')
+                      const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
+                      const res = await axios.post('/api/tasks', {
+                        title: newTaskTitle,
+                        meetingId,
+                        organizationId: meetingInfo?.organizationId
+                      }, {
+                        headers: token ? { Authorization: `Bearer ${token}` } : {}
+                      })
+                      setTasks(prev => [...prev, res.data])
+                      setNewTaskTitle('')
+                    } catch (err) {
+                      console.error('Failed to create task:', err)
+                    }
+                  }
+                }}
+                className="flex-1 bg-white/10 text-white text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:bg-white/15 placeholder-white/30"
+                placeholder="New task..."
+              />
+              <button
+                onClick={async () => {
+                  if (!newTaskTitle.trim()) return
+                  try {
+                    const tokenStore = localStorage.getItem('auth-storage')
+                    const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
+                    const res = await axios.post('/api/tasks', {
+                      title: newTaskTitle,
+                      meetingId,
+                      organizationId: meetingInfo?.organizationId
+                    }, {
+                      headers: token ? { Authorization: `Bearer ${token}` } : {}
+                    })
+                    setTasks(prev => [...prev, res.data])
+                    setNewTaskTitle('')
+                  } catch (err) {
+                    console.error('Failed to create task:', err)
+                  }
+                }}
+                className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl p-2.5 transition flex-shrink-0"
+                title="Create Task"
+              >
+                <Plus size={18} />
               </button>
             </div>
           </div>
@@ -1303,8 +1444,13 @@ export const VideoRoom = () => {
         </button>
 
         <button
-          onClick={() => setShowParticipants(!showParticipants)}
-          className="w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-all relative"
+          onClick={() => {
+            setShowParticipants(!showParticipants)
+            setShowChat(false)
+            setShowNotes(false)
+            setShowTasks(false)
+          }}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showParticipants ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
           title="Show Participants"
         >
           <Users size={20} />
@@ -1314,12 +1460,43 @@ export const VideoRoom = () => {
         </button>
 
         <button
-          onClick={() => setShowChat((prev) => !prev)}
-          className="w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-all relative"
+          onClick={() => {
+            setShowChat(!showChat)
+            setShowParticipants(false)
+            setShowNotes(false)
+            setShowTasks(false)
+          }}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showChat ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
           title="Toggle Chat"
         >
           <MessageSquare size={20} />
           {!showChat && hasUnread && <span className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 w-3 h-3 rounded-full" />}
+        </button>
+
+        <button
+          onClick={() => {
+            setShowNotes(!showNotes)
+            setShowChat(false)
+            setShowParticipants(false)
+            setShowTasks(false)
+          }}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showNotes ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+          title="Shared Notes"
+        >
+          <FileText size={20} />
+        </button>
+
+        <button
+          onClick={() => {
+            setShowTasks(!showTasks)
+            setShowChat(false)
+            setShowParticipants(false)
+            setShowNotes(false)
+          }}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showTasks ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+          title="Tasks"
+        >
+          <CheckSquare size={20} />
         </button>
 
         <button
