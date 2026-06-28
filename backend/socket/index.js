@@ -282,14 +282,20 @@ const socketHandler = (io) => {
               // Call Ollama for summary and action items
               const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
               
-              summaryDoc.summary = summary;
-              summaryDoc.actionItems = actionItems.map((item, index) => ({
-                id: index + 1,
-                task: item,
-                assignee: 'Unassigned',
-                status: 'pending'
-              }));
-              await summaryDoc.save();
+              await Summary.updateOne(
+                { _id: summaryDoc._id },
+                {
+                  $set: {
+                    summary: summary,
+                    actionItems: actionItems.map((item, index) => ({
+                      id: index + 1,
+                      task: item,
+                      assignee: 'Unassigned',
+                      status: 'pending'
+                    }))
+                  }
+                }
+              );
               console.log(`[AI] Summary saved for meeting ${roomId}.`);
               
               // Clear in-memory copy

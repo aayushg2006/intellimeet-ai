@@ -34,7 +34,9 @@ export const getSummaryByMeeting = async (req, res) => {
       participants: meeting.participants.map(p => p.name) || [],
       summary: summary?.summary || 'No AI summary generated yet.',
       actionItems: summary?.actionItems || [],
-      transcript: summary?.transcript || []
+      transcript: summary?.transcript || [],
+      attachments: meeting.attachments || [],
+      recordingKey: meeting.recordingKey || ''
     };
 
     res.json(responseData);
@@ -73,15 +75,20 @@ export const generatePendingSummary = async (req, res) => {
     const fullTranscriptText = summaryDoc.transcript.join('\n');
     const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
 
-    summaryDoc.summary = summary;
-    summaryDoc.actionItems = actionItems.map((item, index) => ({
-      id: index + 1,
-      task: item,
-      assignee: 'Unassigned',
-      status: 'pending'
-    }));
-
-    await summaryDoc.save();
+    await Summary.updateOne(
+      { _id: summaryDoc._id },
+      {
+        $set: {
+          summary: summary,
+          actionItems: actionItems.map((item, index) => ({
+            id: index + 1,
+            task: item,
+            assignee: 'Unassigned',
+            status: 'pending'
+          }))
+        }
+      }
+    );
     res.json({ message: 'Summary generated successfully' });
   } catch (error) {
     console.error('Generate summary error:', error);

@@ -1,7 +1,7 @@
+import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import http from 'http';
 import dns from 'dns';
 import helmet from 'helmet';
@@ -11,8 +11,8 @@ import socketHandler from './socket/index.js';
 import configurePassport from './config/passport.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
-// Load environment variables
-dotenv.config();
+// Triggering server restart to load latest .env variables
+// Environment variables are loaded automatically via import 'dotenv/config'
 
 // ─── PROCESS ERROR HANDLERS ───
 process.on('unhandledRejection', (reason, promise) => {
@@ -92,6 +92,7 @@ import messageRoutes from './routes/messageRoutes.js';
 import summaryRoutes from './routes/summaryRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/meetings', meetingRoutes);
@@ -100,6 +101,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/summaries', summaryRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/organizations', organizationRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // ─── ERROR HANDLING (must be after all routes) ───
 app.use(notFound);

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { ArrowLeft, User, Mail, Shield, Camera, Save, Loader, Check } from 'lucide-react'
+import { useSignedUrl } from '../hooks/useSignedUrl'
+import { ArrowLeft, User, Mail, Shield, Camera, Save, Loader, Check, Upload } from 'lucide-react'
 import axios from 'axios'
 
 export const SettingsPage = () => {
@@ -12,12 +13,71 @@ export const SettingsPage = () => {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState(null)
+  const fileInputRef = useRef(null)
+
+  // Resolve the S3 key (or external URL) into a displayable URL
+  const { url: resolvedAvatarUrl } = useSignedUrl(user?.avatar)
 
   const initials = user?.name
     ?.split(' ')
     .map((p) => p[0])
     .join('')
     .toUpperCase() || 'U'
+
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Validate on client side
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file (JPEG, PNG, GIF, or WebP)')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Image must be smaller than 5MB')
+      return
+    }
+
+    // Show immediate preview
+    const previewUrl = URL.createObjectURL(file)
+    setAvatarPreview(previewUrl)
+    setError('')
+    setUploading(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await axios.post('/api/uploads/avatar', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+
+      // Update auth store with new avatar key
+      const updatedUser = { ...user, avatar: res.data.key }
+      login(updatedUser, token)
+
+      // Use the returned signed URL for display
+      setAvatarPreview(res.data.url)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to upload avatar')
+      setAvatarPreview(null)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const displayAvatarUrl = avatarPreview || resolvedAvatarUrl
 
   const handleSave = async (e) => {
     e.preventDefault()
@@ -83,24 +143,49 @@ export const SettingsPage = () => {
           {/* Avatar */}
           <div className="flex items-center gap-4 mb-6">
             <div className="relative group">
-              {user?.avatar ? (
+              {displayAvatarUrl ? (
                 <img
-                  src={user.avatar}
-                  alt={user.name}
-                  className="w-16 h-16 rounded-full object-cover"
+                  src={displayAvatarUrl}
+                  alt={user?.name}
+                  className="w-16 h-16 rounded-full object-cover border-2 border-[#E8E4DD]"
                 />
               ) : (
                 <div className="w-16 h-16 rounded-full bg-[#7C3AED] text-white text-xl font-semibold flex items-center justify-center">
                   {initials}
                 </div>
               )}
-              <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer">
-                <Camera size={18} className="text-white" />
-              </div>
+              <button
+                type="button"
+                onClick={handleAvatarClick}
+                disabled={uploading}
+                className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer disabled:cursor-wait"
+              >
+                {uploading ? (
+                  <Loader size={18} className="text-white animate-spin" />
+                ) : (
+                  <Camera size={18} className="text-white" />
+                )}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                onChange={handleAvatarChange}
+                className="hidden"
+              />
             </div>
             <div>
               <p className="text-sm font-medium text-[#1A1A1A]">{user?.name}</p>
               <p className="text-xs text-[#6B6560]">{user?.email}</p>
+              <button
+                type="button"
+                onClick={handleAvatarClick}
+                disabled={uploading}
+                className="text-xs text-[#7C3AED] hover:text-[#6D28D9] mt-1 flex items-center gap-1 transition disabled:opacity-50"
+              >
+                <Upload size={12} />
+                {uploading ? 'Uploading...' : 'Change photo'}
+              </button>
             </div>
           </div>
 

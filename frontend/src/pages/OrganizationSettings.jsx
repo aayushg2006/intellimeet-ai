@@ -4,7 +4,97 @@ import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Building, Link2, Copy, CheckCircle2, Trash2, Shield, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, Plus, Building, Link2, Copy, CheckCircle2, Trash2, Shield, User as UserIcon, Camera, Loader, Upload } from 'lucide-react';
+import { useSignedUrl } from '../hooks/useSignedUrl';
+
+const OrganizationLogo = ({ org, isAdmin }) => {
+  const { token } = useAuthStore()
+  const queryClient = useQueryClient()
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useState(null)[1] // not using ref, just triggering directly
+  
+  const { url: resolvedLogoUrl } = useSignedUrl(org.logo)
+  const initials = org.name?.charAt(0).toUpperCase() || 'O'
+
+  const handleLogoChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (JPEG, PNG, GIF, or WebP)')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image must be smaller than 5MB')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('organizationId', org._id)
+
+      await axios.post('/api/uploads/org-logo', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+      
+      queryClient.invalidateQueries(['organizations'])
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to upload logo')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-4 mb-4">
+      <div className="relative group">
+        {resolvedLogoUrl ? (
+          <img
+            src={resolvedLogoUrl}
+            alt={org.name}
+            className="w-14 h-14 rounded-xl object-cover border-2 border-[#E8E4DD]"
+          />
+        ) : (
+          <div className="w-14 h-14 rounded-xl bg-[#059669] text-white text-xl font-semibold flex items-center justify-center">
+            {initials}
+          </div>
+        )}
+        
+        {isAdmin && (
+          <>
+            <label className="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer">
+              {uploading ? (
+                <Loader size={16} className="text-white animate-spin" />
+              ) : (
+                <Camera size={16} className="text-white" />
+              )}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                onChange={handleLogoChange}
+                className="hidden"
+                disabled={uploading}
+              />
+            </label>
+          </>
+        )}
+      </div>
+      <div>
+        <h3 className="font-semibold text-lg">{org.name}</h3>
+        {isAdmin && (
+          <span className="text-xs bg-[#7C3AED]/10 text-[#7C3AED] px-2 py-0.5 rounded-md font-medium inline-block mt-0.5">
+            Admin
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const OrganizationMembersList = ({ orgId, isAdmin }) => {
   const { token } = useAuthStore();
@@ -285,14 +375,7 @@ export const OrganizationSettings = () => {
                     activeWorkspace === org._id ? 'border-[#7C3AED] shadow-sm' : 'border-[#E8E4DD]'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-lg">{org.name}</h3>
-                    {org.userRole === 'OrgAdmin' && (
-                      <span className="text-xs bg-[#7C3AED]/10 text-[#7C3AED] px-2 py-1 rounded-md font-medium">
-                        Admin
-                      </span>
-                    )}
-                  </div>
+                  <OrganizationLogo org={org} isAdmin={org.userRole === 'OrgAdmin'} />
                   {org.domain && (
                     <p className="text-sm text-[#6B6560] mb-3">Domain: <span className="font-medium text-[#1A1A1A]">{org.domain}</span></p>
                   )}

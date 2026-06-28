@@ -19,6 +19,10 @@ const organizationSchema = new mongoose.Schema(
       unique: true,
       sparse: true,
     },
+    logo: {
+      type: String, // S3 key for organization logo
+      default: '',
+    },
     settings: {
       requireSso: { type: Boolean, default: false },
       retentionDays: { type: Number, default: 90 }, // Keep recordings for X days

@@ -7,6 +7,7 @@ import axios from 'axios'
 import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
 import { ScheduleMeetingModal } from '../components/ScheduleMeetingModal'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { useSignedUrl } from '../hooks/useSignedUrl'
 
 export const DashboardPage = () => {
   const navigate = useNavigate()
@@ -28,6 +29,8 @@ export const DashboardPage = () => {
     },
     enabled: !!token
   })
+
+  const { url: resolvedAvatarUrl } = useSignedUrl(user?.avatar)
 
   const handleLogout = () => {
     logout()
@@ -99,8 +102,8 @@ export const DashboardPage = () => {
               </button>
             </div>
             <div className="flex items-center gap-3">
-              {user?.avatar ? (
-                <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full object-cover" />
+              {resolvedAvatarUrl ? (
+                <img src={resolvedAvatarUrl} alt={user.name} className="w-8 h-8 rounded-full object-cover bg-white" />
               ) : (
                 <div className="w-8 h-8 rounded-full bg-[#7C3AED] text-white text-sm font-medium flex items-center justify-center">
                   {user?.name

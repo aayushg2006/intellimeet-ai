@@ -1,8 +1,120 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { FileText, ArrowLeft, Clock, Users, CheckSquare, ChevronDown, ChevronUp, Copy, Check, Download, Loader, RefreshCw, Sparkles } from 'lucide-react'
+import { FileText, ArrowLeft, Clock, Users, CheckSquare, ChevronDown, ChevronUp, Copy, Check, Download, Loader, RefreshCw, Sparkles, Video, Paperclip, FileIcon, Maximize } from 'lucide-react'
 import axios from 'axios'
+import { useSignedUrl } from '../hooks/useSignedUrl'
+
+const RecordingPlayer = ({ recordingKey }) => {
+  const { url, loading } = useSignedUrl(recordingKey)
+  const videoRef = useRef(null)
+  const [copied, setCopied] = useState(false)
+
+  const handleCopyLink = () => {
+    if (url) {
+      navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const handleFullscreen = () => {
+    if (videoRef.current) {
+      if (videoRef.current.requestFullscreen) {
+        videoRef.current.requestFullscreen()
+      } else if (videoRef.current.webkitRequestFullscreen) {
+        videoRef.current.webkitRequestFullscreen()
+      } else if (videoRef.current.msRequestFullscreen) {
+        videoRef.current.msRequestFullscreen()
+      }
+    }
+  }
+
+  if (!recordingKey) return null
+
+  return (
+    <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5 mb-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[#1A1A1A]">
+          <Video size={16} className="text-[#7C3AED]" />
+          Meeting Recording
+        </div>
+        <div className="flex items-center gap-2">
+          {url && (
+            <>
+              <button 
+                onClick={handleCopyLink}
+                className="flex items-center gap-1.5 text-xs text-[#6B6560] hover:text-[#1A1A1A] transition bg-[#F5F2EE] px-2.5 py-1.5 rounded-lg"
+              >
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? 'Copied' : 'Copy Link'}
+              </button>
+              <button 
+                onClick={handleFullscreen}
+                className="flex items-center gap-1.5 text-xs text-[#6B6560] hover:text-[#1A1A1A] transition bg-[#F5F2EE] px-2.5 py-1.5 rounded-lg"
+              >
+                <Maximize size={14} />
+                Fullscreen
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {loading ? (
+        <div className="flex items-center justify-center p-8 bg-[#F5F2EE] rounded-xl text-[#6B6560]">
+          <Loader size={20} className="animate-spin mr-2" />
+          Loading recording...
+        </div>
+      ) : url ? (
+        <div className="rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center relative group">
+          <video 
+            ref={videoRef}
+            src={url} 
+            controls 
+            className="w-full h-full object-contain"
+            controlsList="nodownload"
+          />
+        </div>
+      ) : (
+        <div className="p-4 bg-red-50 text-red-600 rounded-xl text-sm">Failed to load recording</div>
+      )}
+    </div>
+  )
+}
+
+const SharedFile = ({ file }) => {
+  // If S3 key is provided, use signed URL, otherwise fallback to direct URL
+  const { url, loading } = useSignedUrl(file.s3Key)
+  const downloadUrl = url || file.url
+  const sizeMB = file.fileSize ? (file.fileSize / 1024 / 1024).toFixed(2) : 0
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-white border border-[#E8E4DD] rounded-xl mb-2 hover:bg-[#F5F2EE] transition">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-lg bg-[#F5F2EE] flex items-center justify-center flex-shrink-0">
+          <FileIcon size={18} className="text-[#6B6560]" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-[#1A1A1A] truncate" title={file.fileName}>{file.fileName}</p>
+          <p className="text-xs text-[#6B6560]">{sizeMB} MB</p>
+        </div>
+      </div>
+      {loading ? (
+        <Loader size={16} className="text-[#6B6560] animate-spin" />
+      ) : (
+        <a 
+          href={downloadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="w-8 h-8 flex items-center justify-center rounded-full bg-[#7C3AED]/10 text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white transition"
+          title="Download"
+        >
+          <Download size={14} />
+        </a>
+      )}
+    </div>
+  )
+}
 
 export const MeetingSummary = () => {
   const navigate = useNavigate()
@@ -103,13 +215,23 @@ export const MeetingSummary = () => {
           <span className="text-[#7C3AED]">●</span>
           IntellMeet
         </div>
-        <button
-          onClick={handleBack}
-          className="flex items-center gap-2 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
-        >
-          <ArrowLeft size={16} />
-          Back to dashboard
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={fetchSummary}
+            className="flex items-center gap-1.5 text-sm text-[#6B6560] hover:text-[#7C3AED] transition"
+            title="Refresh summary data (fetches latest recordings/attachments)"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          <button
+            onClick={handleBack}
+            className="flex items-center gap-2 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
+          >
+            <ArrowLeft size={16} />
+            Back to dashboard
+          </button>
+        </div>
       </div>
 
       <div className="max-w-4xl mx-auto px-6 pt-6 pb-10">
@@ -264,6 +386,32 @@ export const MeetingSummary = () => {
           </div>
 
           <div className="col-span-1 space-y-4 sticky top-4">
+            
+            {/* Recording */}
+            {summaryData.recordingKey && (
+              <RecordingPlayer recordingKey={summaryData.recordingKey} />
+            )}
+
+            {/* Shared Files */}
+            {summaryData.attachments && summaryData.attachments.length > 0 && (
+              <div className="bg-white border border-[#E8E4DD] rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-[#1A1A1A] flex items-center gap-2">
+                    <Paperclip size={16} className="text-[#7C3AED]" />
+                    Shared Files
+                  </h2>
+                  <span className="bg-[#F5F2EE] text-[#6B6560] text-xs px-2 py-0.5 rounded-full">
+                    {summaryData.attachments.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {summaryData.attachments.map((file, idx) => (
+                    <SharedFile key={idx} file={file} />
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border border-[#E8E4DD] rounded-2xl p-4">
               <h2 className="text-sm font-semibold text-[#1A1A1A] mb-3">Participants</h2>
               <div className="space-y-3">

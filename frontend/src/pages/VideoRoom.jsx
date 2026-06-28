@@ -25,6 +25,9 @@ import {
   X,
   Copy,
   Check,
+  Circle,
+  Paperclip,
+  FileIcon,
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
@@ -149,6 +152,15 @@ export const VideoRoom = () => {
   const [captions, setCaptions] = useState([])
   const [interimCaption, setInterimCaption] = useState('')
   const [speechUnsupported, setSpeechUnsupported] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const [sharedFiles, setSharedFiles] = useState([])
+  const mediaRecorderRef = useRef(null)
+  const recordedChunksRef = useRef([])
+  const recordingTimerRef = useRef(null)
+  const fileInputRef = useRef(null)
+  const recordingUploadPromiseRef = useRef(null)
+  const [isEndingCall, setIsEndingCall] = useState(false)
 
   const {
     localStream,
@@ -358,6 +370,10 @@ export const VideoRoom = () => {
 
       // When the host ends the meeting
       socket.on('meeting-ended', () => {
+        // Stop recording if active before navigating away
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop()
+        }
         alert('The host has ended the meeting.')
         stopMedia()
         navigate(`/meeting/${meetingId}/summary`)
@@ -366,6 +382,11 @@ export const VideoRoom = () => {
       // Live Transcripts
       socket.on('transcript-update', (line) => {
         setCaptions((prev) => [...prev, line].slice(-5))
+      })
+
+      // File shared by another participant
+      socket.on('file-shared', (fileInfo) => {
+        setSharedFiles((prev) => [...prev, fileInfo])
       })
 
       // Setup Speech Recognition
@@ -479,12 +500,30 @@ export const VideoRoom = () => {
     }
   }
 
-  const handleEndCall = () => {
+  const handleEndCall = async () => {
     const msg = isHost ? 'End the meeting for everyone?' : 'Leave the meeting?'
     if (confirm(msg)) {
       if (isHost) {
         endMeeting()
       }
+
+      setIsEndingCall(true)
+
+      if (isRecording) {
+        stopRecording();
+      }
+      
+      // Wait for onstop to trigger and assign the promise
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      if (recordingUploadPromiseRef.current) {
+        try {
+          await recordingUploadPromiseRef.current;
+        } catch (e) {
+          console.error("Upload promise failed during end call", e);
+        }
+      }
+
       stopMedia()
       navigate(`/meeting/${meetingId}/summary`)
     }
@@ -547,6 +586,168 @@ export const VideoRoom = () => {
     setJoinRequests((prev) => prev.filter((r) => r.socketId !== request.socketId))
   }
 
+  const recordingStreamRef = useRef(null)
+
+  // ─── RECORDING ───
+  const startRecording = async () => {
+    try {
+      // Prompt user to select screen to record (preferably the current tab)
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'browser' },
+        audio: true,
+        preferCurrentTab: true
+      });
+
+      // Try to mix local microphone with the tab audio
+      let mixedStream;
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const dest = audioCtx.createMediaStreamDestination();
+
+        if (displayStream.getAudioTracks().length > 0) {
+          const displayAudioSource = audioCtx.createMediaStreamSource(displayStream);
+          displayAudioSource.connect(dest);
+        }
+
+        if (localStream && localStream.getAudioTracks().length > 0) {
+          const localAudioSource = audioCtx.createMediaStreamSource(localStream);
+          localAudioSource.connect(dest);
+        }
+
+        const tracks = [...displayStream.getVideoTracks()];
+        if (dest.stream.getAudioTracks().length > 0) {
+          tracks.push(...dest.stream.getAudioTracks());
+        }
+        mixedStream = new MediaStream(tracks);
+      } catch (err) {
+        console.error('AudioContext mixing failed, falling back to basic displayStream', err);
+        mixedStream = displayStream;
+      }
+
+      recordingStreamRef.current = displayStream;
+      recordedChunksRef.current = [];
+
+      // Fallback mime types for browser compatibility
+      const mimeTypes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4']
+      let selectedMime = mimeTypes.find(m => MediaRecorder.isTypeSupported(m)) || ''
+
+      const recorder = new MediaRecorder(mixedStream, selectedMime ? { mimeType: selectedMime } : {})
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        clearInterval(recordingTimerRef.current)
+        setRecordingTime(0)
+
+        // Force strict MIME type for the backend Multer validation
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' })
+        recordedChunksRef.current = []
+
+        if (blob.size === 0) {
+          alert('Recording failed: No media data was captured. Please ensure your microphone or camera was active.');
+          return;
+        }
+
+        recordingUploadPromiseRef.current = (async () => {
+          // Upload recording to S3
+          try {
+            const formData = new FormData()
+            formData.append('file', blob, `recording-${meetingId}-${Date.now()}.webm`)
+            formData.append('meetingId', meetingId)
+
+            const { token } = useAuthStore.getState()
+            await axios.post('/api/uploads/recording', formData, {
+              headers: {
+                Authorization: `Bearer ${token}`
+              },
+            })
+            console.log('[Recording] Uploaded successfully')
+          } catch (err) {
+            console.error('[Recording] Upload failed:', err)
+            const errorMsg = err.response?.data?.message || err.message;
+            alert('Failed to upload recording: ' + errorMsg);
+            throw err;
+          } finally {
+            if (recordingStreamRef.current) {
+              recordingStreamRef.current.getTracks().forEach(t => t.stop());
+              recordingStreamRef.current = null;
+            }
+          }
+        })();
+      }
+
+      recorder.start(1000)
+      mediaRecorderRef.current = recorder
+      setIsRecording(true)
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1)
+      }, 1000)
+    } catch (err) {
+      console.error('Error starting recording:', err)
+      setIsRecording(false)
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+      mediaRecorderRef.current = null
+    }
+    setIsRecording(false)
+  }
+
+  const formatRecordingTime = (seconds) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0')
+    const s = (seconds % 60).toString().padStart(2, '0')
+    return `${m}:${s}`
+  }
+
+  // ─── FILE SHARING ───
+  const handleFileShare = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('meetingId', meetingId)
+
+      const { token } = useAuthStore.getState()
+      const res = await axios.post('/api/uploads/meeting-file', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      })
+
+      const fileInfo = {
+        fileName: res.data.fileName,
+        url: res.data.url,
+        fileType: res.data.fileType,
+        fileSize: res.data.fileSize,
+        uploadedBy: displayName,
+      }
+
+      setSharedFiles((prev) => [...prev, fileInfo])
+
+      // Notify other participants via socket
+      if (socketRef.current) {
+        socketRef.current.emit('file-shared', { roomId: meetingId, fileInfo })
+      }
+    } catch (err) {
+      console.error('[File Share] Upload failed:', err)
+      alert('Failed to share file: ' + (err.response?.data?.message || err.message))
+    }
+
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   // ─── COMPUTED ───
   const allParticipants = [
     { id: '1', name: displayName, isHost },
@@ -591,6 +792,16 @@ export const VideoRoom = () => {
         <div className="w-16 h-16 rounded-full border-4 border-[#7C3AED] border-t-transparent animate-spin mb-6" />
         <h2 className="text-2xl font-semibold mb-2">Waiting for the host...</h2>
         <p className="text-white/50">The meeting host will let you in soon.</p>
+      </div>
+    )
+  }
+
+  if (isEndingCall) {
+    return (
+      <div className="h-screen bg-[#111113] text-white flex flex-col items-center justify-center">
+        <div className="w-16 h-16 rounded-full border-4 border-[#7C3AED] border-t-transparent animate-spin mb-6" />
+        <h2 className="text-2xl font-semibold mb-2">Saving meeting...</h2>
+        <p className="text-white/50">Please wait while we secure your recording.</p>
       </div>
     )
   }
@@ -906,21 +1117,63 @@ export const VideoRoom = () => {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
-              {messages.length === 0 ? (
-                <div className="text-sm text-white/30 text-center mt-8">No messages yet. Say hello!</div>
+              {messages.length === 0 && sharedFiles.length === 0 ? (
+                <div className="text-sm text-white/30 text-center mt-8">No messages or files yet. Say hello!</div>
               ) : (
-                messages.map((message) => (
-                  <div key={message.id} className={`flex flex-col max-w-full ${message.isOwn ? 'items-end' : 'items-start'}`}>
-                    <div className={`${message.isOwn ? 'bg-[#7C3AED] text-white rounded-2xl rounded-br-sm' : 'bg-white/10 text-white rounded-2xl rounded-bl-sm'} px-3 py-2 text-sm`}>
-                      <p className="text-xs text-white/40 mb-1">{message.sender}</p>
-                      <p>{message.text}</p>
+                <>
+                  {messages.map((message) => (
+                    <div key={message.id} className={`flex flex-col max-w-full ${message.isOwn ? 'items-end' : 'items-start'}`}>
+                      <div className={`${message.isOwn ? 'bg-[#7C3AED] text-white rounded-2xl rounded-br-sm' : 'bg-white/10 text-white rounded-2xl rounded-bl-sm'} px-3 py-2 text-sm`}>
+                        <p className="text-xs text-white/40 mb-1">{message.sender}</p>
+                        <p>{message.text}</p>
+                      </div>
+                      <span className="text-xs text-white/30 mt-1">{message.time}</span>
                     </div>
-                    <span className="text-xs text-white/30 mt-1">{message.time}</span>
-                  </div>
-                ))
+                  ))}
+                  
+                  {/* Shared Files Display */}
+                  {sharedFiles.map((file, idx) => (
+                    <div key={`file-${idx}`} className={`flex flex-col max-w-full items-start mt-2`}>
+                      <div className="bg-white/5 border border-white/10 text-white rounded-2xl px-3 py-3 text-sm w-full">
+                        <p className="text-xs text-white/40 mb-2">{file.uploadedBy} shared a file</p>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                            <FileIcon size={18} className="text-[#7C3AED]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate" title={file.fileName}>{file.fileName}</p>
+                            <p className="text-xs text-white/40">{(file.fileSize / 1024 / 1024).toFixed(2)} MB</p>
+                          </div>
+                          <a
+                            href={file.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-[#7C3AED]/20 text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                          >
+                            View
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
-            <div className="p-3 border-t border-white/10 flex gap-2">
+            <div className="p-3 border-t border-white/10 flex gap-2 items-center">
+              <button 
+                onClick={() => fileInputRef.current?.click()} 
+                className="text-white/40 hover:text-white transition p-2 bg-white/5 rounded-xl"
+                title="Share file"
+              >
+                <Paperclip size={18} />
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileShare}
+                className="hidden"
+                accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              />
               <input
                 type="text"
                 value={chatInput}
@@ -931,10 +1184,10 @@ export const VideoRoom = () => {
                     handleSendMessage()
                   }
                 }}
-                className="flex-1 bg-white/10 text-white text-sm rounded-xl px-3 py-2 focus:outline-none focus:bg-white/15 placeholder-white/30"
+                className="flex-1 bg-white/10 text-white text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:bg-white/15 placeholder-white/30"
                 placeholder="Type a message..."
               />
-              <button onClick={handleSendMessage} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl p-2 transition" title="Send Message">
+              <button onClick={handleSendMessage} className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white rounded-xl p-2.5 transition" title="Send Message">
                 <Send size={18} />
               </button>
             </div>
@@ -998,6 +1251,18 @@ export const VideoRoom = () => {
         >
           <Share2 size={20} />
         </button>
+
+        {isHost && (
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+              isRecording ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse' : 'bg-white/10 text-white hover:bg-white/20'
+            }`}
+            title={isRecording ? 'Stop Recording' : 'Start Recording'}
+          >
+            {isRecording ? <div className="flex flex-col items-center"><Circle size={12} fill="currentColor" className="mb-0.5" /><span className="text-[9px] font-bold">{formatRecordingTime(recordingTime)}</span></div> : <Circle size={20} />}
+          </button>
+        )}
 
         <div className="relative">
           <button
