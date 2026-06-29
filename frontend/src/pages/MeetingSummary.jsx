@@ -349,7 +349,7 @@ export const MeetingSummary = () => {
               </div>
             </div>
 
-            {summaryData.notes && summaryData.notes.trim() !== '' && (
+            {summaryData.notes && summaryData.notes.trim() !== '' && summaryData.notes !== '<p><br></p>' && (
               <div className="bg-white border border-[#E8E4DD] rounded-2xl overflow-hidden mb-6">
                 <div className="px-5 py-4 border-b border-[#E8E4DD] flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-[#1A1A1A] flex items-center gap-2">
@@ -357,9 +357,10 @@ export const MeetingSummary = () => {
                     Shared Notes
                   </h2>
                 </div>
-                <div className="p-6 text-sm text-[#1A1A1A] whitespace-pre-wrap">
-                  {summaryData.notes}
-                </div>
+                <div 
+                  className="p-6 text-sm text-[#1A1A1A] whitespace-pre-wrap ql-editor"
+                  dangerouslySetInnerHTML={{ __html: summaryData.notes }} 
+                />
               </div>
             )}
 

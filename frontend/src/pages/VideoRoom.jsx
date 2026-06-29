@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useMeetingStore } from '../store/meetingStore'
 import { useAuthStore } from '../store/authStore'
+import ReactQuill from 'react-quill'
+import 'react-quill/dist/quill.snow.css'
 import axios from 'axios'
 import {
   Mic,
@@ -259,7 +261,7 @@ export const VideoRoom = () => {
         const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
         const [msgRes, taskRes] = await Promise.all([
           axios.get(`/api/messages/${meetingId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
-          axios.get(`/api/tasks?meetingId=${meetingId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+          axios.get(`/api/tasks?meetingId=${meetingData._id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
         ])
         
         const pastMessages = msgRes.data.map(msg => ({
@@ -1231,7 +1233,7 @@ export const VideoRoom = () => {
         )}
 
         {showNotes && (
-          <div className="w-80 bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
+          <div className="w-[400px] bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-white">Shared Notes</h2>
@@ -1241,15 +1243,18 @@ export const VideoRoom = () => {
                 <X size={18} />
               </button>
             </div>
-            <div className="flex-1 p-4 min-h-0">
-              <textarea
+            <div className="flex-1 p-4 min-h-0 bg-white notes-container overflow-y-auto">
+              <ReactQuill 
+                theme="snow"
                 value={sharedNotes}
-                onChange={(e) => {
-                  setSharedNotes(e.target.value)
-                  if (socketRef.current) socketRef.current.emit('note-update', meetingId, e.target.value)
+                onChange={(content, delta, source, editor) => {
+                  setSharedNotes(content)
+                  if (source === 'user' && socketRef.current) {
+                    socketRef.current.emit('note-update', meetingId, content)
+                  }
                 }}
-                className="w-full h-full bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white focus:outline-none focus:border-[#7C3AED]/50 resize-none placeholder-white/30"
-                placeholder="Type notes here... everyone in the room will see them."
+                className="h-full text-black"
+                placeholder="Type notes here... everyone in the room will see them live."
               />
             </div>
           </div>
@@ -1292,7 +1297,7 @@ export const VideoRoom = () => {
                       const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
                       const res = await axios.post('/api/tasks', {
                         title: newTaskTitle,
-                        meetingId,
+                        meetingId: meetingInfo?._id,
                         organizationId: meetingInfo?.organizationId
                       }, {
                         headers: token ? { Authorization: `Bearer ${token}` } : {}
@@ -1315,7 +1320,7 @@ export const VideoRoom = () => {
                     const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
                     const res = await axios.post('/api/tasks', {
                       title: newTaskTitle,
-                      meetingId,
+                      meetingId: meetingInfo?._id,
                       organizationId: meetingInfo?.organizationId
                     }, {
                       headers: token ? { Authorization: `Bearer ${token}` } : {}
