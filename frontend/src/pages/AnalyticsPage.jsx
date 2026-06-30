@@ -41,6 +41,10 @@ export const AnalyticsPage = () => {
     meetingsByType: rawData.meetingsByType || [],
     topParticipants: rawData.topParticipants || [],
     recentActivity: rawData.recentActivity || [],
+    participationRate: rawData.participationRate || 0,
+    taskCompletionRate: rawData.taskCompletionRate || 0,
+    totalTasks: rawData.totalTasks || 0,
+    completedTasks: rawData.completedTasks || 0
   } : null
 
   const maxCount = analyticsData && analyticsData.meetingsThisWeek.length > 0
@@ -147,7 +151,24 @@ export const AnalyticsPage = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-5">
+        <div className="grid grid-cols-2 gap-4 mt-4">
+          <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-[#1A1A1A]">Participation Rate</div>
+              <div className="text-xs text-[#6B6560] mt-1">Meetings attended</div>
+            </div>
+            <div className="text-3xl font-bold text-[#059669]">{analyticsData.participationRate}%</div>
+          </div>
+          <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-[#1A1A1A]">Task Completion</div>
+              <div className="text-xs text-[#6B6560] mt-1">{analyticsData.completedTasks} of {analyticsData.totalTasks} tasks done</div>
+            </div>
+            <div className="text-3xl font-bold text-[#7C3AED]">{analyticsData.taskCompletionRate}%</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-5 mt-4">
           <div className="col-span-2 space-y-5">
             <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
               <div className="flex items-center justify-between">

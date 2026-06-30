@@ -81,6 +81,30 @@ export const getAnalytics = async (req, res) => {
     const totalHours = Math.round(totalMinutes / 60 * 10) / 10;
     const avgDuration = meetings.length ? Math.round(totalMinutes / meetings.length) : 0;
 
+    // Fetch tasks for productivity metrics
+    const taskQuery = {};
+    if (organizationId && organizationId !== 'personal') {
+      taskQuery.teamId = organizationId;
+    } else {
+      taskQuery.userId = req.user._id;
+      // teamId might be null or undefined for personal tasks
+      taskQuery.$or = [{ teamId: null }, { teamId: { $exists: false } }];
+    }
+    const tasks = await Task.find(taskQuery);
+    
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(t => t.status === 'Done').length;
+    const taskCompletionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    let participationRate = 100;
+    if (organizationId && organizationId !== 'personal') {
+       const userMeetings = meetings.filter(m => 
+         (m.host && m.host.toString() === req.user._id.toString()) || 
+         (m.participants && m.participants.some(p => p._id && p._id.toString() === req.user._id.toString()))
+       ).length;
+       participationRate = meetings.length > 0 ? Math.round((userMeetings / meetings.length) * 100) : 0;
+    }
+
     const analytics = {
       totalMeetings: meetings.length,
       totalHours,
@@ -89,7 +113,11 @@ export const getAnalytics = async (req, res) => {
       meetingsThisWeek,
       meetingsByType,
       topParticipants: [], // Could aggregate if needed
-      recentActivity
+      recentActivity,
+      participationRate,
+      taskCompletionRate,
+      totalTasks,
+      completedTasks
     };
 
     res.json(analytics);
