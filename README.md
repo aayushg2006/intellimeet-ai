@@ -65,7 +65,7 @@ graph TD
     end
     
     subgraph "External AI Services"
-        LLM[Google Gemini API <br/> AI Summarization]
+        LLM[Ollama Qwen 2.5 3B <br/> AI Summarization]
         Transcribe[Deepgram / AssemblyAI <br/> Speech-to-Text]
     end
 

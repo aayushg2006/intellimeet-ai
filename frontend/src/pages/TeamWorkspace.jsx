@@ -23,7 +23,9 @@ export const TeamWorkspace = () => {
   const [socket, setSocket] = useState(null)
 
   useEffect(() => {
-    const newSocket = io(window.location.origin.replace('5173', '5000'))
+    const newSocket = io(window.location.origin.replace('5173', '5000'), {
+      auth: { token }
+    })
     setSocket(newSocket)
 
     newSocket.emit('join-workspace', activeWorkspace)

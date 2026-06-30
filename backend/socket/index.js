@@ -3,6 +3,7 @@ import Message from '../models/Message.js';
 import Summary from '../models/Summary.js';
 import mongoose from 'mongoose';
 import aiService from '../services/aiService.js';
+import jwt from 'jsonwebtoken';
 
 // In-memory waiting room: roomId -> [{ socketId, userObj }]
 const waitingRooms = {};
@@ -11,6 +12,20 @@ const waitingRooms = {};
 const roomTranscripts = {};
 
 const socketHandler = (io) => {
+  io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      return next(new Error('Authentication error: No token provided'));
+    }
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      socket.user = decoded; // Contains id
+      next();
+    } catch (err) {
+      return next(new Error('Authentication error: Invalid token'));
+    }
+  });
+
   io.on('connection', (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
 

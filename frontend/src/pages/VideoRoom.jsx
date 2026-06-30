@@ -293,7 +293,10 @@ export const VideoRoom = () => {
 
       // 3. Connect socket
       const socketUrl = import.meta.env.DEV ? 'http://localhost:5000' : '/'
-      const socket = io(socketUrl, { path: '/socket.io' })
+      const socket = io(socketUrl, { 
+        path: '/socket.io',
+        auth: { token }
+      })
       socketRef.current = socket
 
       socket.on('connect', () => {

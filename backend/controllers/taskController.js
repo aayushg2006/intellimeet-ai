@@ -73,6 +73,10 @@ export const deleteTask = async (req, res) => {
     const task = await Task.findById(req.params.id);
     if (!task) return res.status(404).json({ message: 'Task not found' });
     
+    if (task.assignee && task.assignee.toString() !== req.user._id.toString()) {
+       return res.status(403).json({ message: 'Not authorized to delete this task' });
+    }
+    
     await task.deleteOne();
     res.json({ message: 'Task removed' });
   } catch (error) {
