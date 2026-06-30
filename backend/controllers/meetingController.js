@@ -1,5 +1,6 @@
 import Meeting from '../models/Meeting.js';
 import redis from '../config/redis.js';
+import crypto from 'crypto';
 
 export const getMeetings = async (req, res) => {
   try {
@@ -75,7 +76,7 @@ export const createMeeting = async (req, res) => {
     const { title, description, scheduledAt, roomId, organizationId, meetingType, allowedParticipants, allowedTeams } = req.body;
     
     // Auto-generate roomId if not provided
-    const generatedRoomId = roomId || Math.random().toString(36).substring(2, 10);
+    const generatedRoomId = roomId || crypto.randomUUID();
 
     const meeting = new Meeting({
       title,
@@ -115,15 +116,21 @@ export const updateMeeting = async (req, res) => {
         return res.status(403).json({ message: 'Not authorized to update this meeting' });
       }
 
-      meeting.title = req.body.title || meeting.title;
-      meeting.description = req.body.description || meeting.description;
-      meeting.status = req.body.status || meeting.status;
+      if (req.body.title !== undefined) meeting.title = req.body.title;
+      if (req.body.description !== undefined) meeting.description = req.body.description;
+      if (req.body.status !== undefined) meeting.status = req.body.status;
 
       const updatedMeeting = await meeting.save();
       
-      // Invalidate cache
-      const cacheKey = `meetings:user:${req.user._id}:org:${meeting.organizationId || 'personal'}`;
-      await redis.del(cacheKey);
+      // Invalidate cache for all participants
+      const orgId = meeting.organizationId || 'personal';
+      const cacheKeys = meeting.participants.map(pId => `meetings:user:${pId}:org:${orgId}`);
+      if (!meeting.participants.includes(meeting.host)) {
+        cacheKeys.push(`meetings:user:${meeting.host}:org:${orgId}`);
+      }
+      if (cacheKeys.length > 0) {
+        await redis.del(...cacheKeys);
+      }
 
       res.json(updatedMeeting);
     } else {

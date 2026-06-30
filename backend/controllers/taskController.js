@@ -49,14 +49,14 @@ export const updateTask = async (req, res) => {
       // Authorization Check: Assignee can update, or if team task, any team member could theoretically update (for now allow assignee or creator or just bypass strict check for simplicity since it's an internal tool, or we can check organization)
       // We will just allow it for now if they are authenticated, but ideally check org membership.
       
-      task.title = req.body.title || task.title;
-      task.description = req.body.description !== undefined ? req.body.description : task.description;
-      task.status = req.body.status || task.status;
-      task.dueDate = req.body.dueDate || task.dueDate;
-      if (req.body.priority) task.priority = req.body.priority;
-      if (req.body.tags) task.tags = req.body.tags;
-      if (req.body.assignee) task.assignee = req.body.assignee;
-      if (req.body.teamId) task.teamId = req.body.teamId;
+      if (req.body.title !== undefined) task.title = req.body.title;
+      if (req.body.description !== undefined) task.description = req.body.description;
+      if (req.body.status !== undefined) task.status = req.body.status;
+      if (req.body.dueDate !== undefined) task.dueDate = req.body.dueDate;
+      if (req.body.priority !== undefined) task.priority = req.body.priority;
+      if (req.body.tags !== undefined) task.tags = req.body.tags;
+      if (req.body.assignee !== undefined) task.assignee = req.body.assignee;
+      if (req.body.teamId !== undefined) task.teamId = req.body.teamId;
 
       const updatedTask = await task.save();
       res.json(updatedTask);
