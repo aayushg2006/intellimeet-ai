@@ -3,8 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useWebRTC } from '../hooks/useWebRTC'
 import { useMeetingStore } from '../store/meetingStore'
 import { useAuthStore } from '../store/authStore'
-import ReactQuill from 'react-quill'
-import 'react-quill/dist/quill.snow.css'
+import ReactQuill from 'react-quill-new'
+import 'react-quill-new/dist/quill.snow.css'
 import axios from 'axios'
 import {
   Mic,

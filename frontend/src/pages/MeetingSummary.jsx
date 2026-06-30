@@ -169,12 +169,27 @@ export const MeetingSummary = () => {
     }
   }, [meetingId, token])
 
-  const toggleAction = (id) => {
+  const toggleAction = async (id) => {
     setActionItems((prev) =>
       prev.map((item) =>
         item.id === id ? { ...item, done: !item.done } : item
       )
     )
+
+    if (id && id.length === 24) {
+      const item = actionItems.find(i => i.id === id);
+      if (item) {
+        try {
+          await axios.put(`/api/tasks/${id}`, {
+            status: !item.done ? 'Done' : 'Todo'
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        } catch (error) {
+          console.error("Failed to update task", error);
+        }
+      }
+    }
   }
 
   const handleCopy = async () => {

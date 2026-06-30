@@ -106,6 +106,11 @@ export const createTaskSchema = z.object({
   status: z.enum(['Todo', 'In Progress', 'In Review', 'Done']).optional(),
   meetingId: z.string().optional(),
   dueDate: z.string().optional(),
+  organizationId: z.string().optional(),
+  teamId: z.string().optional(),
+  priority: z.enum(['high', 'medium', 'low']).optional(),
+  tags: z.array(z.string()).optional(),
+  assignee: z.string().optional(),
 });
 
 export const updateTaskSchema = z.object({

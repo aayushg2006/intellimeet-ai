@@ -92,6 +92,7 @@ import messageRoutes from './routes/messageRoutes.js';
 import summaryRoutes from './routes/summaryRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import organizationRoutes from './routes/organizationRoutes.js';
+import teamRoutes from './routes/teamRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 
 app.use('/api/auth', authRoutes);
@@ -101,6 +102,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/summaries', summaryRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/organizations', organizationRoutes);
+app.use('/api/teams', teamRoutes);
 app.use('/api/uploads', uploadRoutes);
 
 // ─── ERROR HANDLING (must be after all routes) ───

@@ -7,6 +7,9 @@ const taskSchema = new mongoose.Schema({
   assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   meetingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Meeting' },
   organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }, // null = personal
+  teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
+  priority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium' },
+  tags: [{ type: String }],
   dueDate: { type: Date },
   createdAt: { type: Date, default: Date.now }
 });

@@ -3,19 +3,29 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, TrendingUp, Users, Clock, Video, BarChart2, Calendar, Loader } from 'lucide-react'
 import axios from 'axios'
 import { useQuery } from '@tanstack/react-query'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, CartesianGrid
+} from 'recharts'
 import { useAuthStore } from '../store/authStore'
+import { useWorkspaceStore } from '../store/workspaceStore'
 
 export const AnalyticsPage = () => {
   const navigate = useNavigate()
-  const [selectedRange] = useState('This week')
+  const [selectedRange, setSelectedRange] = useState('This week')
 
   const { token } = useAuthStore()
+  const { activeWorkspace } = useWorkspaceStore()
 
   const { data: rawData = null, isLoading: loading } = useQuery({
-    queryKey: ['analytics'],
+    queryKey: ['analytics', activeWorkspace, selectedRange],
     queryFn: async () => {
       const res = await axios.get('/api/analytics', {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          organizationId: activeWorkspace === 'personal' ? null : activeWorkspace,
+          timeRange: selectedRange
+        }
       })
       return res.data
     },
@@ -54,9 +64,48 @@ export const AnalyticsPage = () => {
         </button>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 pt-6 pb-0">
-        <h1 className="text-2xl font-semibold text-[#1A1A1A]">Analytics</h1>
-        <p className="text-sm text-[#6B6560] mt-1">Your meeting insights</p>
+      <div className="max-w-6xl mx-auto px-6 pt-6 pb-0 flex justify-between items-end">
+        <div>
+          <h1 className="text-2xl font-semibold text-[#1A1A1A]">Analytics</h1>
+          <p className="text-sm text-[#6B6560] mt-1">Your meeting insights</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <select 
+            value={selectedRange} 
+            onChange={(e) => setSelectedRange(e.target.value)}
+            className="px-4 py-2 border border-[#E8E4DD] rounded-xl text-sm font-medium text-[#1A1A1A] outline-none hover:bg-[#F5F2EE] transition cursor-pointer"
+          >
+            <option value="This week">This week</option>
+            <option value="This month">This month</option>
+            <option value="All time">All time</option>
+          </select>
+          <button 
+            onClick={() => {
+              if (analyticsData) {
+                const csvRows = [
+                  ['Metric', 'Value'],
+                  ['Total Meetings', analyticsData.totalMeetings],
+                  ['Total Hours', analyticsData.totalHours],
+                  ['Total Participants', analyticsData.totalParticipants],
+                  ['Average Duration (m)', analyticsData.avgDuration]
+                ];
+                const csvString = csvRows.map(r => r.join(',')).join('\n');
+                const blob = new Blob([csvString], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.setAttribute('hidden', '');
+                a.setAttribute('href', url);
+                a.setAttribute('download', `intellimeet_analytics_${activeWorkspace || 'personal'}.csv`);
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+              }
+            }}
+            className="px-4 py-2 bg-[#1A1A1A] text-white rounded-xl text-sm font-medium hover:bg-[#333] transition shadow-sm"
+          >
+            Export as CSV
+          </button>
+        </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-6 space-y-6">
@@ -109,53 +158,59 @@ export const AnalyticsPage = () => {
                 <span className="text-xs text-[#6B6560]">{selectedRange}</span>
               </div>
               <p className="text-xs text-[#6B6560] mt-0.5 mb-5">Daily meeting frequency</p>
-              <div className="flex items-end justify-between gap-2 h-36">
-                {analyticsData.meetingsThisWeek.map((day) => {
-                  const height = day.count === 0 ? 6 : (day.count / maxCount) * 100
-                  return (
-                    <div key={day.day} className="flex flex-col items-center gap-2 flex-1">
-                      {day.count > 0 ? (
-                        <span className="text-xs font-medium text-[#6B6560] mb-1">{day.count}</span>
-                      ) : (
-                        <span className="text-xs text-transparent mb-1">0</span>
-                      )}
-                      <div
-                        className={`w-full rounded-t-lg ${day.count === maxCount ? 'bg-[#7C3AED]' : 'bg-[#E8E4DD]'}`}
-                        style={{ height: `${height}%` }}
-                      />
-                      <span className="text-xs text-[#6B6560]">{day.day}</span>
-                    </div>
-                  )
-                })}
+              <div className="flex items-end justify-between gap-2 h-48 mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={analyticsData.meetingsThisWeek}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E4DD" />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#6B6560', fontSize: 12}} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#6B6560', fontSize: 12}} dx={-10} allowDecimals={false} />
+                    <RechartsTooltip cursor={{fill: '#F5F2EE'}} contentStyle={{borderRadius: '12px', border: '1px solid #E8E4DD', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}} />
+                    <Bar dataKey="count" fill="#7C3AED" radius={[4, 4, 0, 0]} barSize={32} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
 
             <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
               <div className="text-sm font-semibold text-[#1A1A1A]">Meeting types</div>
               <p className="text-xs text-[#6B6560] mt-0.5 mb-4">Distribution by category</p>
-              <div>
-                {analyticsData.meetingsByType.length === 0 && (
-                  <p className="text-xs text-[#6B6560]">No data available.</p>
-                )}
-                {analyticsData.meetingsByType.map((type) => {
-                  const width = `${(type.count / totalMeetings) * 100}%`
-                  return (
-                    <div key={type.type} className="flex items-center gap-3 mb-3 last:mb-0">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: type.color }}
-                      />
-                      <span className="text-sm text-[#1A1A1A] flex-1">{type.type}</span>
-                      <div className="flex-1 bg-[#F5F2EE] rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="h-1.5 rounded-full"
-                          style={{ width, backgroundColor: type.color }}
+              <div className="flex items-center gap-6 mt-4">
+                <div className="w-32 h-32 flex-shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={analyticsData.meetingsByType}
+                        innerRadius={30}
+                        outerRadius={60}
+                        paddingAngle={2}
+                        dataKey="value"
+                      >
+                        {analyticsData.meetingsByType.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip contentStyle={{borderRadius: '12px', border: '1px solid #E8E4DD'}} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                <div className="flex-1">
+                  {analyticsData.meetingsByType.length === 0 && (
+                    <p className="text-xs text-[#6B6560]">No data available.</p>
+                  )}
+                  {analyticsData.meetingsByType.map((type) => (
+                    <div key={type.name} className="flex items-center justify-between mb-3 last:mb-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: type.fill }}
                         />
+                        <span className="text-sm text-[#1A1A1A]">{type.name}</span>
                       </div>
-                      <span className="text-xs text-[#6B6560] ml-2">{type.count}</span>
+                      <span className="text-sm font-semibold text-[#1A1A1A]">{type.value}</span>
                     </div>
-                  )
-                })}
+                  ))}
+                </div>
               </div>
             </div>
           </div>

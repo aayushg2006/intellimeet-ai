@@ -1,5 +1,6 @@
 import Meeting from '../models/Meeting.js';
 import Summary from '../models/Summary.js';
+import Task from '../models/Task.js';
 import aiService from '../services/aiService.js';
 
 export const getSummaryByMeeting = async (req, res) => {
@@ -25,6 +26,31 @@ export const getSummaryByMeeting = async (req, res) => {
       calculatedDuration = `${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
     }
 
+    const manualTasks = await Task.find({ meetingId: meeting._id }).populate('assignee', 'name');
+    const formattedTasks = manualTasks.map(t => ({
+      id: t._id.toString(),
+      task: t.title,
+      assignee: t.assignee?.name || 'Unassigned',
+      status: t.status,
+      done: t.status === 'Done'
+    }));
+
+    let allActionItems = summary?.actionItems || [];
+    if (allActionItems.length === 1 && allActionItems[0].task === '[No Action Items listed]') {
+      allActionItems = [];
+    }
+    
+    const combinedActionItems = [...allActionItems, ...formattedTasks];
+    if (combinedActionItems.length === 0) {
+      combinedActionItems.push({
+        id: 'none',
+        task: '[No Action Items listed]',
+        assignee: 'Unassigned',
+        status: 'pending',
+        done: false
+      });
+    }
+
     const responseData = {
       title: meeting.title,
       date: new Date(meeting.scheduledAt || meeting.createdAt).toLocaleDateString('en-US', {
@@ -33,7 +59,7 @@ export const getSummaryByMeeting = async (req, res) => {
       duration: calculatedDuration,
       participants: meeting.participants.map(p => p.name) || [],
       summary: summary?.summary || 'No AI summary generated yet.',
-      actionItems: summary?.actionItems || [],
+      actionItems: combinedActionItems,
       transcript: summary?.transcript || [],
       attachments: meeting.attachments || [],
       recordingKey: meeting.recordingKey || '',

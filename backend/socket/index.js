@@ -14,6 +14,28 @@ const socketHandler = (io) => {
   io.on('connection', (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
 
+    // ─── WORKSPACE (Team) ROOMS ───
+    socket.on('join-workspace', (workspaceId) => {
+      if (workspaceId) {
+        socket.join(`workspace_${workspaceId}`);
+        console.log(`[Socket] ${socket.id} joined workspace_${workspaceId}`);
+      }
+    });
+
+    socket.on('leave-workspace', (workspaceId) => {
+      if (workspaceId) {
+        socket.leave(`workspace_${workspaceId}`);
+        console.log(`[Socket] ${socket.id} left workspace_${workspaceId}`);
+      }
+    });
+
+    socket.on('task-updated', (workspaceId) => {
+      // Broadcast to everyone else in this workspace to refresh their tasks
+      if (workspaceId) {
+        socket.to(`workspace_${workspaceId}`).emit('refresh-tasks');
+      }
+    });
+
     // ─── JOIN ROOM ───
     socket.on('join-room', async (roomId, userObj) => {
       try {
