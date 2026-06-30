@@ -76,10 +76,10 @@ graph TD
     UI <--> TaskMgr
     UI <--> Uploads
     
-    RTC_Client -.-> WS_Server : Signaling
-    RTC_Client <--> RTC_Client : P2P Media Streams
+    RTC_Client -.->|Signaling| WS_Server
+    RTC_Client <-->|P2P Media Streams| RTC_Client
     
-    WS_Client <--> WS_Server : Real-time Sync
+    WS_Client <-->|Real-time Sync| WS_Server
     
     Auth <--> DB
     VideoMgr <--> DB
