@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, TrendingUp, Users, Clock, Video, BarChart2, Calendar, Loader } from 'lucide-react'
+import { ArrowLeft, TrendingUp, Users, Clock, Video, BarChart2, Loader } from 'lucide-react'
 import axios from 'axios'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -47,9 +47,6 @@ export const AnalyticsPage = () => {
     completedTasks: rawData.completedTasks || 0
   } : null
 
-  const maxCount = analyticsData && analyticsData.meetingsThisWeek.length > 0
-    ? Math.max(...analyticsData.meetingsThisWeek.map((d) => d.count), 1)
-    : 1
   const totalMeetings = analyticsData?.totalMeetings || 1
 
   return (

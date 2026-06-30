@@ -10,6 +10,8 @@ const waitingRooms = {};
 
 // In-memory transcripts: roomId -> [ "sentence 1", "sentence 2" ]
 const roomTranscripts = {};
+const notesBuffer = {};
+const summaryCache = {};
 
 const socketHandler = (io) => {
   io.use((socket, next) => {
@@ -25,6 +27,22 @@ const socketHandler = (io) => {
       return next(new Error('Authentication error: Invalid token'));
     }
   });
+
+  // Cleanup interval every 30 minutes for abandoned meetings
+  setInterval(() => {
+    const allRooms = io.sockets.adapter.rooms;
+    for (const roomId in roomTranscripts) {
+      if (!allRooms.has(roomId)) {
+        delete roomTranscripts[roomId];
+        delete waitingRooms[roomId];
+        delete summaryCache[roomId];
+        if (notesBuffer[roomId]) {
+          clearTimeout(notesBuffer[roomId]);
+          delete notesBuffer[roomId];
+        }
+      }
+    }
+  }, 30 * 60 * 1000);
 
   io.on('connection', (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
@@ -254,8 +272,12 @@ const socketHandler = (io) => {
         if (!roomId) return;
         socket.to(roomId).emit('note-update', notes);
 
-        // Throttle saving to DB or just save every time (since it's a small app)
-        await Meeting.updateOne({ roomId }, { $set: { notes } });
+        // Throttle saving to DB to once every 3 seconds per room
+        if (notesBuffer[roomId]) clearTimeout(notesBuffer[roomId]);
+        notesBuffer[roomId] = setTimeout(async () => {
+          await Meeting.updateOne({ roomId }, { $set: { notes } });
+          delete notesBuffer[roomId];
+        }, 3000);
       } catch (error) {
         console.error('[Socket] note-update error:', error);
       }
@@ -274,24 +296,31 @@ const socketHandler = (io) => {
 
           // Persist to MongoDB incrementally so transcripts survive server restarts
           try {
-            const meeting = await Meeting.findOne({ roomId });
-            if (meeting) {
-              let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
-              if (!summaryDoc) {
-                summaryDoc = new Summary({
-                  meetingId: meeting._id,
-                  organizationId: meeting.organizationId,
-                  title: meeting.title,
-                  date: meeting.createdAt.toISOString().split('T')[0],
-                  transcript: [transcriptLine]
-                });
-                await summaryDoc.save();
-              } else {
-                await Summary.updateOne(
-                  { _id: summaryDoc._id },
-                  { $push: { transcript: transcriptLine } }
-                );
+            let cache = summaryCache[roomId];
+            if (!cache) {
+              const meeting = await Meeting.findOne({ roomId });
+              if (meeting) {
+                let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+                if (!summaryDoc) {
+                  summaryDoc = new Summary({
+                    meetingId: meeting._id,
+                    organizationId: meeting.organizationId,
+                    title: meeting.title,
+                    date: meeting.createdAt.toISOString().split('T')[0],
+                    transcript: []
+                  });
+                  await summaryDoc.save();
+                }
+                cache = { summaryDocId: summaryDoc._id };
+                summaryCache[roomId] = cache;
               }
+            }
+            
+            if (cache) {
+              await Summary.updateOne(
+                { _id: cache.summaryDocId },
+                { $push: { transcript: transcriptLine } }
+              );
             }
           } catch (dbErr) {
             console.error('[Socket] Failed to persist transcript line:', dbErr.message);

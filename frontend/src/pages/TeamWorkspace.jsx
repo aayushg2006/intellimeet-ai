@@ -23,7 +23,8 @@ export const TeamWorkspace = () => {
   const [socket, setSocket] = useState(null)
 
   useEffect(() => {
-    const newSocket = io(window.location.origin.replace('5173', '5000'), {
+    const socketUrl = import.meta.env.DEV ? 'http://localhost:5000' : '/'
+    const newSocket = io(socketUrl, {
       auth: { token }
     })
     setSocket(newSocket)

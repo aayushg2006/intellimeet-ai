@@ -38,7 +38,6 @@ export const updateProfileSchema = z.object({
     .optional(),
   avatar: z
     .string()
-    .url('Avatar must be a valid URL')
     .optional(),
 });
 
