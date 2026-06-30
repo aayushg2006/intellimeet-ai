@@ -12,8 +12,13 @@ export const getMeetings = async (req, res) => {
 
     const query = {
       $or: [{ host: req.user._id }, { participants: req.user._id }],
-      organizationId: organizationId || null,
     };
+
+    if (organizationId && organizationId !== 'personal') {
+      query.organizationId = organizationId;
+    } else {
+      query.$or = [{ organizationId: null }, { organizationId: { $exists: false } }];
+    }
 
     const meetings = await Meeting.find(query).populate('host', 'name email');
     

@@ -12,7 +12,7 @@ export const getAnalytics = async (req, res) => {
       // Actually, if it's an organization, it might be better to see all meetings in the organization if the user has access.
       delete query.host;
     } else {
-      query.organizationId = null;
+      query.$or = [{ organizationId: null }, { organizationId: { $exists: false } }];
     }
 
     // Time range filter (Optional enhancement)
@@ -84,11 +84,10 @@ export const getAnalytics = async (req, res) => {
     // Fetch tasks for productivity metrics
     const taskQuery = {};
     if (organizationId && organizationId !== 'personal') {
-      taskQuery.teamId = organizationId;
+      taskQuery.organizationId = organizationId;
     } else {
-      taskQuery.userId = req.user._id;
-      // teamId might be null or undefined for personal tasks
-      taskQuery.$or = [{ teamId: null }, { teamId: { $exists: false } }];
+      taskQuery.assignee = req.user._id;
+      taskQuery.$or = [{ organizationId: null }, { organizationId: { $exists: false } }];
     }
     const tasks = await Task.find(taskQuery);
     

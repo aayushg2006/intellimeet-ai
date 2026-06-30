@@ -118,6 +118,10 @@ export const updateTaskSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   status: z.enum(['Todo', 'In Progress', 'In Review', 'Done']).optional(),
   assignee: z.string().optional(),
+  dueDate: z.string().optional(),
+  teamId: z.string().optional(),
+  priority: z.enum(['high', 'medium', 'low']).optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 // ─── MESSAGE SCHEMAS ───

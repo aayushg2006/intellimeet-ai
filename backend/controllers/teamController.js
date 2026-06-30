@@ -12,7 +12,7 @@ export const createTeam = async (req, res) => {
     });
     
     // Ensure owner is in members array
-    if (!team.members.includes(req.user._id)) {
+    if (!team.members.some(m => m.toString() === req.user._id.toString())) {
       team.members.push(req.user._id);
     }
     
@@ -74,7 +74,7 @@ export const updateTeam = async (req, res) => {
     if (name) team.name = name;
     if (members) {
       team.members = members;
-      if (!team.members.includes(team.owner.toString())) {
+      if (!team.members.some(m => m.toString() === team.owner.toString())) {
         team.members.push(team.owner);
       }
     }
