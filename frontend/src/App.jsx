@@ -15,6 +15,8 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { OrganizationSettings } from './pages/OrganizationSettings'
 import { JoinOrganization } from './pages/JoinOrganization'
+import { LandingPage } from './pages/LandingPage'
+import { NotFoundPage } from './pages/NotFoundPage'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -126,9 +128,9 @@ function App() {
           {/* Fallback Routes */}
           <Route
             path="/"
-            element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />}
+            element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />}
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Router>
     </QueryClientProvider>

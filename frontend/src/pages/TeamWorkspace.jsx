@@ -22,6 +22,8 @@ export const TeamWorkspace = () => {
   const [initialStatus, setInitialStatus] = useState('Todo')
   const [socket, setSocket] = useState(null)
 
+  useEffect(() => { document.title = 'Team Workspace — IntellMeet' }, [])
+
   useEffect(() => {
     const socketUrl = import.meta.env.DEV ? 'http://localhost:5000' : '/'
     const newSocket = io(socketUrl, {
@@ -119,8 +121,7 @@ export const TeamWorkspace = () => {
     <div className="min-h-screen bg-[#FAF9F7]">
       <div className="border-b border-[#E8E4DD] bg-white px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <span className="text-[#7C3AED]">●</span>
-          IntellMeet
+          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
         </div>
         <button
           onClick={() => navigate('/dashboard')}

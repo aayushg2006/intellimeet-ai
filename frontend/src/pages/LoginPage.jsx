@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { Mail, Lock, Eye, EyeOff, Loader } from 'lucide-react'
@@ -16,6 +16,8 @@ export const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(searchParams.get('error') === 'oauth_failed' ? 'Google sign-in failed. Please try again.' : '')
+
+  useEffect(() => { document.title = 'Sign In — IntellMeet' }, [])
 
   const handleSubmit = async (e) => {
     e.preventDefault()

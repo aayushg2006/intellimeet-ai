@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMeetingStore } from '../store/meetingStore'
 import { Video, Mic, MicOff, VideoOff, ArrowLeft, Play, Copy, Check } from 'lucide-react'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 
 export const MeetingLobby = () => {
   const navigate = useNavigate()
@@ -17,6 +18,8 @@ export const MeetingLobby = () => {
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [error, setError] = useState(null)
+
+  useEffect(() => { document.title = `Lobby: ${meetingId} — IntellMeet` }, [meetingId])
 
   const participantInitial = participantName?.trim()?.charAt(0)?.toUpperCase() || 'U'
   const videoRef = useRef(null)
@@ -59,7 +62,7 @@ export const MeetingLobby = () => {
         setLoading(false)
       } catch (err) {
         if (err.response && err.response.status === 404) {
-          alert('Meeting not found! Please check the link.')
+          toast.error('Meeting not found! Please check the link.')
           navigate('/dashboard')
         } else {
           setLoading(false)
@@ -137,7 +140,7 @@ export const MeetingLobby = () => {
 
   const handleJoinMeeting = () => {
     if (!participantName.trim()) {
-      alert('Please enter your name first')
+      toast.error('Please enter your name first')
       return
     }
     // Stop the preview stream before navigating — VideoRoom will acquire its own
@@ -171,8 +174,7 @@ export const MeetingLobby = () => {
     <div className="min-h-screen bg-[#FAF9F7]">
       <div className="border-b border-[#E8E4DD] bg-[#FAF9F7] px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <span className="text-[#7C3AED]">●</span>
-          IntellMeet
+          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 bg-[#F5F2EE] border border-[#E8E4DD] rounded-full p-1 pl-3">

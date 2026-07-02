@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/authStore'
 import ReactQuill from 'react-quill-new'
 import 'react-quill-new/dist/quill.snow.css'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import {
   Mic,
   MicOff,
@@ -171,6 +172,10 @@ export const VideoRoom = () => {
   const fileInputRef = useRef(null)
   const recordingUploadPromiseRef = useRef(null)
   const [isEndingCall, setIsEndingCall] = useState(false)
+  const [showEndModal, setShowEndModal] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  useEffect(() => { document.title = `Meeting: ${meetingId} — IntellMeet` }, [meetingId])
 
   const {
     localStream,
@@ -244,7 +249,7 @@ export const VideoRoom = () => {
       } catch (err) {
         console.error('[VideoRoom] Error fetching meeting:', err)
         if (err.response?.status === 404) {
-          alert('Meeting not found!')
+          toast.error('Meeting not found!')
           navigate('/dashboard')
           return
         }
@@ -313,7 +318,7 @@ export const VideoRoom = () => {
       })
 
       socket.on('room-error', (msg) => {
-        alert(msg)
+        toast.error(msg)
         navigate('/dashboard')
       })
 
@@ -337,7 +342,7 @@ export const VideoRoom = () => {
 
       // Guest rejected
       socket.on('join-rejected', () => {
-        alert('The host declined your request to join.')
+        toast.error('The host declined your request to join.')
         navigate('/dashboard')
       })
 
@@ -423,7 +428,7 @@ export const VideoRoom = () => {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop()
         }
-        alert('The host has ended the meeting.')
+        toast.error('The host has ended the meeting.')
         stopMedia()
         navigate(`/meeting/${meetingId}/summary`)
       })
@@ -549,33 +554,8 @@ export const VideoRoom = () => {
     }
   }
 
-  const handleEndCall = async () => {
-    const msg = isHost ? 'End the meeting for everyone?' : 'Leave the meeting?'
-    if (confirm(msg)) {
-      if (isHost) {
-        endMeeting()
-      }
-
-      setIsEndingCall(true)
-
-      if (isRecording) {
-        stopRecording();
-      }
-      
-      // Wait for onstop to trigger and assign the promise
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      if (recordingUploadPromiseRef.current) {
-        try {
-          await recordingUploadPromiseRef.current;
-        } catch (e) {
-          console.error("Upload promise failed during end call", e);
-        }
-      }
-
-      stopMedia()
-      navigate(`/meeting/${meetingId}/summary`)
-    }
+  const handleEndCall = () => {
+    setShowEndModal(true)
   }
 
   const handleFullscreen = () => {
@@ -618,6 +598,42 @@ export const VideoRoom = () => {
   useEffect(() => {
     if (showChat) setHasUnread(false)
   }, [showChat])
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+
+      switch (e.key.toLowerCase()) {
+        case 'm':
+          if (localStream) toggleAudio()
+          break
+        case 'v':
+          if (localStream) toggleVideo()
+          break
+        case 'e':
+          setShowEndModal(true)
+          break
+        case 'c':
+          setShowChat(prev => !prev)
+          break
+        case 'p':
+          setShowParticipants(prev => !prev)
+          break
+        case 'escape':
+          setShowChat(false)
+          setShowParticipants(false)
+          setShowMoreMenu(false)
+          setShowLayoutModal(false)
+          setShowReactions(false)
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [localStream, isAudioEnabled, isVideoEnabled])
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(window.location.href)
@@ -697,7 +713,7 @@ export const VideoRoom = () => {
         recordedChunksRef.current = []
 
         if (blob.size === 0) {
-          alert('Recording failed: No media data was captured. Please ensure your microphone or camera was active.');
+          toast.error('Recording failed: No media data was captured. Please ensure your microphone or camera was active.');
           return;
         }
 
@@ -718,7 +734,7 @@ export const VideoRoom = () => {
           } catch (err) {
             console.error('[Recording] Upload failed:', err)
             const errorMsg = err.response?.data?.message || err.message;
-            alert('Failed to upload recording: ' + errorMsg);
+            toast.error('Failed to upload recording: ' + errorMsg);
             throw err;
           } finally {
             if (recordingStreamRef.current) {
@@ -788,7 +804,7 @@ export const VideoRoom = () => {
       }
     } catch (err) {
       console.error('[File Share] Upload failed:', err)
-      alert('Failed to share file: ' + (err.response?.data?.message || err.message))
+      toast.error('Failed to share file: ' + (err.response?.data?.message || err.message))
     }
 
     // Reset file input
@@ -1035,8 +1051,7 @@ export const VideoRoom = () => {
     <div className="h-screen bg-[#111113] text-white flex flex-col overflow-hidden relative">
       <div className="px-5 py-3 flex items-center justify-between flex-shrink-0 bg-[#111113] relative">
         <div className="flex items-center gap-3">
-          <span className="text-[#7C3AED]">●</span>
-          <span className="text-white font-semibold text-sm">IntellMeet</span>
+          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto brightness-0 invert" />
           <span className="w-px h-4 bg-white/10" />
           <div className="flex items-center gap-2 text-sm text-white/40">
             <Clock size={14} />
@@ -1514,7 +1529,64 @@ export const VideoRoom = () => {
         >
           <PhoneOff size={20} />
         </button>
+
+        <div className="relative ml-2">
+          <button
+            onClick={() => setShowShortcuts(prev => !prev)}
+            className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center text-xs font-medium transition"
+            title="Keyboard shortcuts"
+          >
+            ?
+          </button>
+          {showShortcuts && (
+            <div className="absolute bottom-12 right-0 bg-[#1C1C1E] border border-white/10 rounded-2xl p-4 w-52 shadow-2xl">
+              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3">Shortcuts</p>
+              <div className="space-y-2">
+                {[
+                  { key: 'M', label: 'Mute / Unmute' },
+                  { key: 'V', label: 'Video on / off' },
+                  { key: 'C', label: 'Toggle chat' },
+                  { key: 'P', label: 'Participants' },
+                  { key: 'E', label: 'End meeting' },
+                  { key: 'Esc', label: 'Close panels' },
+                ].map(({ key, label }) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="text-xs text-white/50">{label}</span>
+                    <kbd className="bg-white/10 text-white/70 text-xs px-2 py-0.5 rounded-lg font-mono">{key}</kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {showEndModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-[#1C1C1E] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
+            <h3 className="text-white font-semibold text-lg mb-2">End meeting?</h3>
+            <p className="text-white/50 text-sm mb-6">This will end the meeting for you.</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowEndModal(false)}
+                className="flex-1 border border-white/10 text-white/70 hover:bg-white/5 rounded-xl py-2.5 text-sm font-medium transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowEndModal(false)
+                  toast.success('Meeting ended')
+                  navigate(`/meeting/${meetingId}/summary`)
+                }}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl py-2.5 text-sm font-medium transition"
+              >
+                End meeting
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showLayoutModal && (
         <div

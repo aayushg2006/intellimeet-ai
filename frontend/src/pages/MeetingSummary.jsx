@@ -128,6 +128,8 @@ export const MeetingSummary = () => {
   const [isGenerating, setIsGenerating] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  useEffect(() => { document.title = 'Meeting Summary — IntellMeet' }, [])
+
   const fetchSummary = async () => {
     try {
       const res = await axios.get(`/api/summaries/${meetingId}`, {
@@ -227,8 +229,7 @@ export const MeetingSummary = () => {
     <div className="min-h-screen bg-[#FAF9F7]">
       <div className="border-b border-[#E8E4DD] bg-white px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <span className="text-[#7C3AED]">●</span>
-          IntellMeet
+          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
         </div>
         <div className="flex items-center gap-4">
           <button

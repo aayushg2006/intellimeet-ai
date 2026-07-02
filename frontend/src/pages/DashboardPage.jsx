@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore'
 import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader, Settings, Search } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
 import { ScheduleMeetingModal } from '../components/ScheduleMeetingModal'
 import { useWorkspaceStore } from '../store/workspaceStore'
@@ -17,6 +18,8 @@ export const DashboardPage = () => {
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => { document.title = 'Dashboard — IntellMeet' }, [])
 
   const { data: meetings = [], isLoading: loading } = useQuery({
     queryKey: ['meetings', activeWorkspace],
@@ -52,13 +55,14 @@ export const DashboardPage = () => {
       navigate(`/meeting/${newMeetingId}`)
     } catch (error) {
       console.error('Error creating meeting:', error)
-      alert('Failed to create meeting')
+      toast.error('Failed to create meeting')
     }
   }
 
   const handleJoinMeeting = () => {
     if (!meetingId.trim()) {
-      alert('Please enter a meeting ID')
+      toast.dismiss()
+      toast.error('Please enter a meeting ID')
       return
     }
     navigate(`/meeting/${meetingId}`)
@@ -79,8 +83,7 @@ export const DashboardPage = () => {
         <nav className="bg-[#FAF9F7] border-b border-[#E8E4DD] sticky top-0 z-10">
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center gap-2">
-              <span className="text-[#7C3AED] text-sm">●</span>
-              <span className="text-lg font-semibold text-[#1A1A1A] mr-4">IntellMeet</span>
+              <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto mr-4" />
               <WorkspaceSwitcher />
             </div>
             <div className="flex items-center gap-1">

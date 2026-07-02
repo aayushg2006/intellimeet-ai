@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, TrendingUp, Users, Clock, Video, BarChart2, Loader } from 'lucide-react'
 import axios from 'axios'
@@ -13,6 +13,8 @@ import { useWorkspaceStore } from '../store/workspaceStore'
 export const AnalyticsPage = () => {
   const navigate = useNavigate()
   const [selectedRange, setSelectedRange] = useState('This week')
+
+  useEffect(() => { document.title = 'Analytics — IntellMeet' }, [])
 
   const { token } = useAuthStore()
   const { activeWorkspace } = useWorkspaceStore()
@@ -53,8 +55,7 @@ export const AnalyticsPage = () => {
     <div className="min-h-screen bg-[#FAF9F7]">
       <div className="border-b border-[#E8E4DD] bg-white px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <span className="text-[#7C3AED]">●</span>
-          IntellMeet
+          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
         </div>
         <button
           onClick={() => navigate('/dashboard')}

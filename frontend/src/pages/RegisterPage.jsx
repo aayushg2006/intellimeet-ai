@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { Mail, Lock, User, Eye, EyeOff, Loader } from 'lucide-react'
@@ -20,6 +20,8 @@ export const RegisterPage = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => { document.title = 'Sign Up — IntellMeet' }, [])
 
   const handleChange = (e) => {
     const { name, value } = e.target
