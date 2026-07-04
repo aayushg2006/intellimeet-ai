@@ -25,7 +25,7 @@ export const TeamWorkspace = () => {
   useEffect(() => { document.title = 'Team Workspace — IntellMeet' }, [])
 
   useEffect(() => {
-    const socketUrl = import.meta.env.DEV ? 'http://localhost:5000' : '/'
+    const socketUrl = '/';
     const newSocket = io(socketUrl, {
       auth: { token }
     })

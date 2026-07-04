@@ -232,7 +232,7 @@ const socketHandler = (io) => {
     // ─── CHAT ───
     socket.on('chat-message', async (msgData) => {
       try {
-        if (!msgData.roomId || !msgData.text) return;
+        if (!msgData.roomId || (!msgData.text && !msgData.fileUrl)) return;
 
         // If sender is a valid ObjectId, save to DB
         if (msgData.sender && mongoose.Types.ObjectId.isValid(msgData.sender)) {
@@ -336,57 +336,74 @@ const socketHandler = (io) => {
       if (socket.roomId === roomId && socket.isHost) {
         try {
           const meeting = await Meeting.findOne({ roomId });
-          if (meeting && meeting.status !== 'completed') {
-            meeting.status = 'completed';
-            meeting.endedAt = new Date();
-            await meeting.save();
-            console.log(`[Socket] Meeting ${roomId} ended by host`);
+          if (meeting) {
+            const wasAlreadyCompleted = meeting.status === 'completed';
+            if (!wasAlreadyCompleted) {
+              meeting.status = 'completed';
+              meeting.endedAt = new Date();
+              await meeting.save();
+              console.log(`[Socket] Meeting ${roomId} ended by host`);
+            }
             
-            // Notify all users in the room that the meeting has ended
+            // Notify all users in the room that the meeting has ended (even if already marked completed)
             io.to(roomId).emit('meeting-ended');
 
-            // --- AI Summary Generation ---
-            // Read transcript from DB (survives server restarts)
-            let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
-            const transcript = summaryDoc?.transcript || roomTranscripts[roomId] || [];
-            
-            if (transcript.length > 0) {
-              const fullTranscriptText = transcript.join('\n');
-              console.log(`[AI] Generating summary for meeting ${roomId}...`);
-              
-              // Ensure summary doc exists
-              if (!summaryDoc) {
-                summaryDoc = new Summary({
-                  meetingId: meeting._id,
-                  organizationId: meeting.organizationId,
-                  title: meeting.title,
-                  date: meeting.createdAt.toISOString().split('T')[0],
-                  transcript: transcript
-                });
-                await summaryDoc.save();
-              }
+            if (!wasAlreadyCompleted) {
+              // --- AI Summary Generation (fire-and-forget) ---
+              // Run in background so the socket handler completes immediately
+              const meetingId = meeting._id;
+              const meetingOrgId = meeting.organizationId;
+              const meetingTitle = meeting.title;
+              const meetingDate = meeting.createdAt.toISOString().split('T')[0];
 
-              // Call Ollama for summary and action items
-              const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
-              
-              await Summary.updateOne(
-                { _id: summaryDoc._id },
-                {
-                  $set: {
-                    summary: summary,
-                    actionItems: actionItems.map((item, index) => ({
-                      id: index + 1,
-                      task: item,
-                      assignee: 'Unassigned',
-                      status: 'pending'
-                    }))
+              (async () => {
+                try {
+                  // Read transcript from DB (survives server restarts)
+                  let summaryDoc = await Summary.findOne({ meetingId });
+                  const transcript = summaryDoc?.transcript || roomTranscripts[roomId] || [];
+                  
+                  if (transcript.length > 0) {
+                    const fullTranscriptText = transcript.join('\n');
+                    console.log(`[AI] Generating summary for meeting ${roomId}...`);
+                    
+                    // Ensure summary doc exists
+                    if (!summaryDoc) {
+                      summaryDoc = new Summary({
+                        meetingId,
+                        organizationId: meetingOrgId,
+                        title: meetingTitle,
+                        date: meetingDate,
+                        transcript: transcript
+                      });
+                      await summaryDoc.save();
+                    }
+
+                    // Call Ollama for summary and action items
+                    const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
+                    
+                    await Summary.updateOne(
+                      { _id: summaryDoc._id },
+                      {
+                        $set: {
+                          summary: summary,
+                          actionItems: actionItems.map((item, index) => ({
+                            id: index + 1,
+                            task: item,
+                            assignee: 'Unassigned',
+                            status: 'pending'
+                          }))
+                        }
+                      }
+                    );
+                    console.log(`[AI] Summary saved for meeting ${roomId}.`);
                   }
+                  
+                  // Clear in-memory copy
+                  delete roomTranscripts[roomId];
+                } catch (aiErr) {
+                  console.error(`[AI] Background summary generation failed for ${roomId}:`, aiErr.message);
                 }
-              );
-              console.log(`[AI] Summary saved for meeting ${roomId}.`);
-              
-              // Clear in-memory copy
-              delete roomTranscripts[roomId];
+              })();
             }
           }
         } catch (error) {

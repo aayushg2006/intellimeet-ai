@@ -85,7 +85,7 @@ export const MeetingLobby = () => {
     if (videoRef.current && previewStreamRef.current) {
       videoRef.current.srcObject = previewStreamRef.current
     }
-  }, [isVideoEnabled])
+  }, [isVideoEnabled, loading])
 
   const toggleAudio = () => {
     if (previewStreamRef.current) {

@@ -163,6 +163,8 @@ export const VideoRoom = () => {
   const [captions, setCaptions] = useState([])
   const [interimCaption, setInterimCaption] = useState('')
   const [speechUnsupported, setSpeechUnsupported] = useState(false)
+  const [captionEpoch, setCaptionEpoch] = useState(0)
+  const [isMobile, setIsMobile] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const [sharedFiles, setSharedFiles] = useState([])
@@ -184,6 +186,7 @@ export const VideoRoom = () => {
     isVideoEnabled,
     isScreenSharing,
     screenStream,
+    error: mediaError,
     toggleAudio,
     toggleVideo,
     startScreenShare,
@@ -217,6 +220,8 @@ export const VideoRoom = () => {
   const [remoteScreenSharer, setRemoteScreenSharer] = useState(null) // socketId of remote screen sharer
   const recognitionRef = useRef(null)
   const isAudioEnabledRef = useRef(isAudioEnabled)
+  const cancelledRef = useRef(false) // Stable ref to ignore stale socket/recognition events
+  const isEndingCallRef = useRef(false) // Stable ref to prevent meeting-ended handler firing for host
 
   // Keep refs in sync
   useEffect(() => {
@@ -225,7 +230,50 @@ export const VideoRoom = () => {
 
   useEffect(() => {
     isAudioEnabledRef.current = isAudioEnabled
+    
+    // Start or stop transcription when mic toggles
+    if (recognitionRef.current && !speechUnsupported) {
+      if (isAudioEnabled) {
+        try { recognitionRef.current.start() } catch (e) {}
+      } else {
+        try { recognitionRef.current.stop() } catch (e) {}
+      }
+    }
   }, [isAudioEnabled])
+
+  useEffect(() => {
+    const updateIsMobile = () => {
+      setIsMobile(window.matchMedia('(max-width: 768px)').matches)
+    }
+
+    updateIsMobile()
+    window.addEventListener('resize', updateIsMobile)
+    return () => window.removeEventListener('resize', updateIsMobile)
+  }, [])
+
+  useEffect(() => {
+    if (!captions.length && !interimCaption) return
+
+    const timer = setInterval(() => {
+      const now = Date.now()
+      setCaptions((prev) => prev.filter((item) => item.expiresAt > now).slice(-3))
+    }, 500)
+
+    return () => clearInterval(timer)
+  }, [captions.length, interimCaption])
+
+  useEffect(() => {
+    if (!interimCaption) return
+    const timer = setTimeout(() => setInterimCaption(''), 2500)
+    return () => clearTimeout(timer)
+  }, [interimCaption, captionEpoch])
+
+  // Restart transcription if they just granted permission (localStream becomes available)
+  useEffect(() => {
+    if (localStream && isAudioEnabled && recognitionRef.current && !speechUnsupported) {
+      try { recognitionRef.current.start() } catch (e) {}
+    }
+  }, [localStream])
 
   // ─── INITIALIZE MEDIA ON MOUNT ───
   useEffect(() => {
@@ -234,14 +282,29 @@ export const VideoRoom = () => {
 
   // ─── SINGLE STABLE SOCKET LIFECYCLE ───
   useEffect(() => {
+    // Local closure variable — each StrictMode mount gets its own copy.
+    // Unlike cancelledRef, Mount 2 cannot reset Mount 1's flag.
     let cancelled = false
+    cancelledRef.current = false // Keep recognition ref in sync
+
+    // Reset state from any previous (StrictMode) mount to avoid ghost participants
+    setRemoteParticipants([])
+    setRemoteReactions({})
+    setRemoteHands({})
+    setRemoteScreenSharer(null)
+
+    // Track the socket created in THIS mount so cleanup can disconnect it
+    // even if socketRef.current was overwritten by another mount
+    let localSocket = null
 
     const setup = async () => {
+      // Read auth token once — hoisted so it's accessible for both API calls and socket auth
+      const tokenStore = localStorage.getItem('auth-storage')
+      const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
+
       // 1. Fetch meeting info to determine host
       let meetingData = null
       try {
-        const tokenStore = localStorage.getItem('auth-storage')
-        const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
         const res = await axios.get(`/api/meetings/room/${meetingId}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {}
         })
@@ -262,13 +325,13 @@ export const VideoRoom = () => {
 
       // 1.5 Fetch past messages and tasks
       try {
-        const tokenStore = localStorage.getItem('auth-storage')
-        const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
         const [msgRes, taskRes] = await Promise.all([
           axios.get(`/api/messages/${meetingId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
           axios.get(`/api/tasks?meetingId=${meetingData._id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
         ])
         
+        if (cancelled) return
+
         const pastMessages = msgRes.data.map(msg => ({
           id: msg._id,
           sender: msg.sender?.name || 'Unknown',
@@ -286,6 +349,8 @@ export const VideoRoom = () => {
         console.error('[VideoRoom] Error fetching history:', err)
       }
 
+      if (cancelled) return
+
       // 2. Determine host status
       const hostId = meetingData.host?._id || meetingData.host
       const currentIsHost = !!(userId && hostId && String(hostId) === String(userId))
@@ -297,14 +362,16 @@ export const VideoRoom = () => {
       }
 
       // 3. Connect socket
-      const socketUrl = import.meta.env.DEV ? 'http://localhost:5000' : '/'
+      const socketUrl = '/'
       const socket = io(socketUrl, { 
         path: '/socket.io',
         auth: { token }
       })
+      localSocket = socket
       socketRef.current = socket
 
       socket.on('connect', () => {
+        if (cancelled) { socket.disconnect(); return }
         console.log('[VideoRoom] Socket connected:', socket.id)
         socket.emit('join-room', meetingId, {
           id: userId,
@@ -324,6 +391,7 @@ export const VideoRoom = () => {
 
       // Host receives join requests
       socket.on('join-request', (data) => {
+        if (cancelled) return
         // Use ref so this listener always has the latest isHost value
         if (isHostRef.current) {
           console.log('[VideoRoom] Join request from:', data.userObj?.name)
@@ -336,6 +404,7 @@ export const VideoRoom = () => {
 
       // Guest accepted
       socket.on('join-accepted', () => {
+        if (cancelled) return
         console.log('[VideoRoom] Join accepted!')
         setWaitingForHost(false)
       })
@@ -348,6 +417,7 @@ export const VideoRoom = () => {
 
       // Chat messages
       socket.on('chat-message', (msg) => {
+        if (cancelled) return
         setMessages((prev) => [
           ...prev,
           {
@@ -367,11 +437,13 @@ export const VideoRoom = () => {
 
       // Shared notes
       socket.on('note-update', (newNotes) => {
+        if (cancelled) return
         setSharedNotes(newNotes)
       })
 
       // WebRTC events
       socket.on('user-connected', (remoteSocketId, userObj) => {
+        if (cancelled) return
         console.log('[VideoRoom] user-connected:', remoteSocketId, userObj?.name)
         setRemoteParticipants((prev) => {
           if (prev.find((p) => p.id === remoteSocketId)) return prev
@@ -381,6 +453,7 @@ export const VideoRoom = () => {
       })
 
       socket.on('webrtc-offer', (offer, senderSocketId, userObj) => {
+        if (cancelled) return
         console.log('[VideoRoom] webrtc-offer from:', senderSocketId)
         setRemoteParticipants((prev) => {
           if (prev.find((p) => p.id === senderSocketId)) return prev
@@ -390,14 +463,17 @@ export const VideoRoom = () => {
       })
 
       socket.on('webrtc-answer', (answer, senderSocketId) => {
+        if (cancelled) return
         handleAnswer(answer, senderSocketId)
       })
 
       socket.on('ice-candidate', (candidate, senderSocketId) => {
+        if (cancelled) return
         handleIceCandidate(candidate, senderSocketId)
       })
 
       socket.on('user-disconnected', (remoteSocketId) => {
+        if (cancelled) return
         console.log('[VideoRoom] user-disconnected:', remoteSocketId)
         handleUserDisconnected(remoteSocketId)
         setRemoteParticipants((prev) => prev.filter((p) => p.id !== remoteSocketId))
@@ -408,6 +484,7 @@ export const VideoRoom = () => {
 
       // ─── REACTIONS / HAND / SCREEN SHARE from remote ───
       socket.on('user-reaction', (data) => {
+        if (cancelled) return
         setRemoteReactions((prev) => ({ ...prev, [data.socketId]: data.emoji }))
         setTimeout(() => {
           setRemoteReactions((prev) => { const u = { ...prev }; delete u[data.socketId]; return u })
@@ -415,15 +492,19 @@ export const VideoRoom = () => {
       })
 
       socket.on('user-hand', (data) => {
+        if (cancelled) return
         setRemoteHands((prev) => ({ ...prev, [data.socketId]: data.raised }))
       })
 
       socket.on('user-screen-share', (data) => {
+        if (cancelled) return
         setRemoteScreenSharer(data.sharing ? data.socketId : null)
       })
 
-      // When the host ends the meeting
+      // When the host ends the meeting (received by NON-host participants)
       socket.on('meeting-ended', () => {
+        // Skip if we are the one ending the meeting (host clicks End)
+        if (isEndingCallRef.current) return
         // Stop recording if active before navigating away
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop()
@@ -435,78 +516,116 @@ export const VideoRoom = () => {
 
       // Live Transcripts
       socket.on('transcript-update', (line) => {
-        setCaptions((prev) => [...prev, line].slice(-5))
+        if (cancelled) return
+        setCaptions((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            text: line,
+            expiresAt: Date.now() + 5000,
+          },
+        ].slice(-3))
       })
 
       // File shared by another participant
       socket.on('file-shared', (fileInfo) => {
+        if (cancelled) return
         setSharedFiles((prev) => [...prev, fileInfo])
       })
-
-      // Setup Speech Recognition
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition()
-        recognition.continuous = true
-        recognition.interimResults = true
-        recognition.lang = 'en-US'
-
-        recognition.onresult = (event) => {
-          let currentInterim = ''
-          let finalTranscripts = []
-
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              finalTranscripts.push(event.results[i][0].transcript)
-            } else {
-              currentInterim += event.results[i][0].transcript
-            }
-          }
-
-          if (finalTranscripts.length > 0 && socketRef.current) {
-            finalTranscripts.forEach(text => {
-              // Send final transcribed text to backend to be shared and saved
-              socketRef.current.emit('audio-transcription', meetingId, text)
-            })
-          }
-          setInterimCaption(currentInterim)
-        }
-
-        recognition.onerror = (event) => {
-          console.error('Speech recognition error:', event.error)
-        }
-        
-        // Handle restarting if it stops unexpectedly (Chrome stops automatically after a while)
-        recognition.onend = () => {
-          if (!cancelled && isAudioEnabledRef.current) {
-            // Need a slight delay to avoid InvalidStateError synchronous restarts
-            setTimeout(() => {
-              if (!cancelled && isAudioEnabledRef.current) {
-                try { recognition.start() } catch (e) {}
-              }
-            }, 250)
-          }
-        }
-
-        recognitionRef.current = recognition
-        if (isAudioEnabledRef.current) {
-          try { recognition.start() } catch (e) {}
-        }
-      } else {
-        setSpeechUnsupported(true)
-      }
     }
 
     setup()
 
     return () => {
       cancelled = true
-      if (socketRef.current) {
-        socketRef.current.disconnect()
+      cancelledRef.current = true // Keep recognition ref in sync
+      // Disconnect the socket created in THIS mount (localSocket),
+      // not just socketRef.current which may have been overwritten
+      if (localSocket) {
+        localSocket.disconnect()
+      }
+      if (socketRef.current === localSocket) {
         socketRef.current = null
       }
+    }
+  }, [meetingId])
+
+  // ─── SPEECH RECOGNITION (separate from socket lifecycle) ───
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      setSpeechUnsupported(true)
+      return
+    }
+
+    // Small delay to avoid Chrome SpeechRecognition conflicts on StrictMode double-mount
+    const startTimer = setTimeout(() => {
+      if (cancelledRef.current) return
+
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = 'en-US'
+
+      recognition.onresult = (event) => {
+        let currentInterim = ''
+        let finalTranscripts = []
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscripts.push(event.results[i][0].transcript)
+          } else {
+            currentInterim += event.results[i][0].transcript
+          }
+        }
+
+        if (finalTranscripts.length > 0 && socketRef.current) {
+          finalTranscripts.forEach(text => {
+            socketRef.current.emit('audio-transcription', meetingId, text)
+          })
+        }
+        setInterimCaption(currentInterim)
+        setCaptionEpoch((prev) => prev + 1)
+      }
+
+      recognition.onstart = () => {
+        console.log('[VideoRoom] Speech recognition started')
+      }
+
+      recognition.onerror = (event) => {
+        console.error('[VideoRoom] Speech recognition error:', event.error)
+        if (event.error === 'not-allowed' || event.error === 'audio-capture') {
+          toast.error('Microphone access denied or unavailable for transcription.')
+          setSpeechUnsupported(true)
+        }
+      }
+
+      // Handle restarting if Chrome auto-stops recognition after ~60s
+      recognition.onend = () => {
+        if (!cancelledRef.current && isAudioEnabledRef.current) {
+          setTimeout(() => {
+            if (!cancelledRef.current && isAudioEnabledRef.current) {
+              try { recognition.start() } catch (e) {}
+            }
+          }, 300)
+        }
+      }
+
+      recognitionRef.current = recognition
+      if (isAudioEnabledRef.current) {
+        try {
+          recognition.start()
+        } catch (e) {
+          console.error('[VideoRoom] Failed to start recognition:', e)
+        }
+      }
+    }, 500) // Delay allows previous StrictMode recognition instance to fully release
+
+    return () => {
+      clearTimeout(startTimer)
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop() } catch (e) {}
+        try { recognitionRef.current.abort() } catch (e) {}
+        recognitionRef.current = null
       }
     }
   }, [meetingId])
@@ -843,7 +962,13 @@ export const VideoRoom = () => {
   ]
 
   const getGridColumns = () => {
-    if (allTiles.length <= 2) return 1
+    if (isMobile) {
+      if (allTiles.length <= 1) return 1
+      if (allTiles.length <= 4) return 2
+      return 2
+    }
+    if (allTiles.length <= 1) return 1
+    if (allTiles.length <= 2) return 2
     if (allTiles.length <= 4) return 2
     if (allTiles.length <= 9) return 3
     return 4
@@ -851,7 +976,7 @@ export const VideoRoom = () => {
 
   if (waitingForHost) {
     return (
-      <div className="h-screen bg-[#111113] text-white flex flex-col items-center justify-center">
+      <div className="min-h-[100dvh] bg-[#111113] text-white flex flex-col items-center justify-center px-4">
         <div className="w-16 h-16 rounded-full border-4 border-[#7C3AED] border-t-transparent animate-spin mb-6" />
         <h2 className="text-2xl font-semibold mb-2">Waiting for the host...</h2>
         <p className="text-white/50">The meeting host will let you in soon.</p>
@@ -861,10 +986,24 @@ export const VideoRoom = () => {
 
   if (isEndingCall) {
     return (
-      <div className="h-screen bg-[#111113] text-white flex flex-col items-center justify-center">
+      <div className="min-h-[100dvh] bg-[#111113] text-white flex flex-col items-center justify-center px-4">
         <div className="w-16 h-16 rounded-full border-4 border-[#7C3AED] border-t-transparent animate-spin mb-6" />
         <h2 className="text-2xl font-semibold mb-2">Saving meeting...</h2>
         <p className="text-white/50">Please wait while we secure your recording.</p>
+      </div>
+    )
+  }
+
+  if (mediaError && !localStream) {
+    return (
+      <div className="min-h-[100dvh] bg-[#111113] text-white flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-[#1C1C1E] border border-white/10 rounded-3xl p-6 shadow-2xl">
+          <h2 className="text-xl font-semibold mb-2">Media access needed</h2>
+          <p className="text-white/60 text-sm leading-6 mb-4">{mediaError}</p>
+          <p className="text-white/40 text-sm leading-6">
+            On mobile, camera and microphone access usually requires HTTPS or localhost on the same device.
+          </p>
+        </div>
       </div>
     )
   }
@@ -877,17 +1016,17 @@ export const VideoRoom = () => {
     // Screen sharing layout
     if (isScreenSharing) {
       return (
-        <div className={`h-full flex ${GAP}`}>
-          <div className="flex-1 relative bg-[#1C1C1E] rounded-2xl overflow-hidden">
+        <div className={`h-full flex ${isMobile ? 'flex-col' : 'flex-row'} ${GAP}`}>
+          <div className="flex-1 min-h-0 relative bg-[#1C1C1E] rounded-2xl overflow-hidden">
             <video ref={screenVideoRef} autoPlay playsInline className="w-full h-full object-contain" />
             <div className="absolute bottom-3 left-3 bg-black/60 px-2.5 py-1 rounded-lg">
               <p className="text-white text-xs">Your Screen</p>
             </div>
           </div>
-          <div className="w-56 flex flex-col overflow-y-auto">
-            <div className={`flex flex-col ${GAP}`}>
+          <div className={`${isMobile ? 'h-24 flex-shrink-0 flex flex-row overflow-x-auto' : 'w-56 flex flex-col overflow-y-auto'}`}>
+            <div className={`flex ${isMobile ? 'flex-row h-full' : 'flex-col'} ${GAP}`}>
               {tiles.map((tile) => (
-                <div key={tile.id} className="h-40 flex-shrink-0 aspect-video">
+                <div key={tile.id} className={`${isMobile ? 'w-32 h-full flex-shrink-0' : 'h-40 flex-shrink-0 aspect-video'}`}>
                   <VideoTile
                     tile={tile}
                     pinnedId={pinnedId}
@@ -911,9 +1050,9 @@ export const VideoRoom = () => {
       const sharerName = sharerTile?.name || 'Participant'
 
       return (
-        <div className={`h-full flex ${GAP}`}>
+        <div className={`h-full flex ${isMobile ? 'flex-col' : 'flex-row'} ${GAP}`}>
           {/* Main: remote screen share (their video track now contains screen content) */}
-          <div className="flex-1 relative bg-[#1C1C1E] rounded-2xl overflow-hidden">
+          <div className="flex-1 min-h-0 relative bg-[#1C1C1E] rounded-2xl overflow-hidden">
             {sharerTile && (
               <VideoTile
                 tile={{ ...sharerTile, isVideo: true, isScreenShare: true }}
@@ -930,10 +1069,10 @@ export const VideoRoom = () => {
             </div>
           </div>
           {/* Sidebar: all other tiles */}
-          <div className="w-56 flex flex-col overflow-y-auto">
-            <div className={`flex flex-col ${GAP}`}>
+          <div className={`${isMobile ? 'h-24 flex-shrink-0 flex flex-row overflow-x-auto' : 'w-56 flex flex-col overflow-y-auto'}`}>
+            <div className={`flex ${isMobile ? 'flex-row h-full' : 'flex-col'} ${GAP}`}>
               {otherTiles.map((tile) => (
-                <div key={tile.id} className="h-40 flex-shrink-0 aspect-video">
+                <div key={tile.id} className={`${isMobile ? 'w-32 h-full flex-shrink-0' : 'h-40 flex-shrink-0 aspect-video'}`}>
                   <VideoTile
                     tile={tile}
                     pinnedId={pinnedId}
@@ -1049,8 +1188,8 @@ export const VideoRoom = () => {
 
   return (
     <div className="h-screen bg-[#111113] text-white flex flex-col overflow-hidden relative">
-      <div className="px-5 py-3 flex items-center justify-between flex-shrink-0 bg-[#111113] relative">
-        <div className="flex items-center gap-3">
+      <div className="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3 flex-shrink-0 bg-[#111113] relative">
+        <div className="flex items-center gap-3 min-w-0">
           <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto brightness-0 invert" />
           <span className="w-px h-4 bg-white/10" />
           <div className="flex items-center gap-2 text-sm text-white/40">
@@ -1059,7 +1198,7 @@ export const VideoRoom = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
           <span className="bg-red-500/20 text-red-400 border border-red-500/30 text-xs px-2.5 py-1 rounded-full font-semibold">
             LIVE
           </span>
@@ -1116,13 +1255,13 @@ export const VideoRoom = () => {
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="flex-1 min-h-0 flex flex-col relative">
-          <div className="flex-1 min-h-0 overflow-hidden p-4">
+          <div className="flex-1 min-h-0 overflow-hidden p-2 sm:p-4">
             {renderLayoutContent()}
           </div>
           
           {/* Speech Recognition Unsupported Warning */}
           {speechUnsupported && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-amber-500/90 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg backdrop-blur-sm flex items-center gap-2">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-amber-500/90 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg backdrop-blur-sm flex items-center gap-2 max-w-[calc(100vw-1.5rem)] text-center">
               ⚠️ Live transcription is not supported in this browser. Use Chrome for best results.
               <button onClick={() => setSpeechUnsupported(false)} className="ml-2 text-white/80 hover:text-white">✕</button>
             </div>
@@ -1130,14 +1269,14 @@ export const VideoRoom = () => {
 
           {/* Live Captions Overlay */}
           {(captions.length > 0 || interimCaption) && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-full px-12">
-              {captions.map((cap, idx) => (
-                <div key={idx} className="bg-black/70 backdrop-blur-sm text-white px-4 py-2 rounded-xl text-lg font-medium text-center shadow-lg border border-white/10 max-w-2xl w-max animate-in fade-in slide-in-from-bottom-2">
-                  {cap}
+            <div className="absolute bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-10 w-full px-3 sm:px-12">
+              {captions.map((cap) => (
+                <div key={cap.id} className="bg-black/70 backdrop-blur-sm text-white px-4 py-2 rounded-xl text-sm sm:text-lg font-medium text-center shadow-lg border border-white/10 max-w-[92vw] sm:max-w-2xl w-max animate-in fade-in slide-in-from-bottom-2">
+                  {cap.text}
                 </div>
               ))}
               {interimCaption && (
-                <div className="bg-black/40 backdrop-blur-sm text-white/80 px-4 py-2 rounded-xl text-lg font-medium text-center shadow-lg border border-white/10 max-w-2xl w-max italic animate-pulse">
+                <div className="bg-black/40 backdrop-blur-sm text-white/80 px-4 py-2 rounded-xl text-sm sm:text-lg font-medium text-center shadow-lg border border-white/10 max-w-[92vw] sm:max-w-2xl w-max italic animate-pulse">
                   {interimCaption}
                 </div>
               )}
@@ -1146,7 +1285,7 @@ export const VideoRoom = () => {
         </div>
 
         {showParticipants && (
-          <div className="w-64 bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
+          <div className={`${isMobile ? 'fixed inset-x-0 top-16 bottom-0 z-40 border-t border-white/10' : 'w-64 border-l'} bg-[#1C1C1E] flex flex-col flex-shrink-0`}>
             <div className="px-4 py-3 border-b border-white/10">
               <h2 className="text-sm font-semibold text-white">Participants</h2>
               <p className="text-xs text-white/40">{allParticipants.length} in room</p>
@@ -1168,7 +1307,7 @@ export const VideoRoom = () => {
         )}
 
         {showChat && (
-          <div className="w-80 bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
+          <div className={`${isMobile ? 'fixed inset-x-0 top-16 bottom-0 z-40 border-t border-white/10' : 'w-80 border-l'} bg-[#1C1C1E] flex flex-col flex-shrink-0`}>
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-white">Meeting Chat</h2>
@@ -1251,7 +1390,7 @@ export const VideoRoom = () => {
         )}
 
         {showNotes && (
-          <div className="w-[400px] bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
+          <div className={`${isMobile ? 'fixed inset-x-0 top-16 bottom-0 z-40 border-t border-white/10' : 'w-[400px] border-l'} bg-[#1C1C1E] flex flex-col flex-shrink-0`}>
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-white">Shared Notes</h2>
@@ -1279,7 +1418,7 @@ export const VideoRoom = () => {
         )}
 
         {showTasks && (
-          <div className="w-80 bg-[#1C1C1E] border-l border-white/10 flex flex-col flex-shrink-0">
+          <div className={`${isMobile ? 'fixed inset-x-0 top-16 bottom-0 z-40 border-t border-white/10' : 'w-80 border-l'} bg-[#1C1C1E] flex flex-col flex-shrink-0`}>
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-white">Action Items</h2>
@@ -1375,13 +1514,11 @@ export const VideoRoom = () => {
       )}
 
       {/* Bottom Toolbar */}
-      <div className="px-6 py-4 flex items-center justify-center gap-2 flex-shrink-0 bg-[#111113]">
+      <div className="px-2 sm:px-6 py-2 sm:py-2.5 flex items-center justify-center gap-1.5 sm:gap-2 flex-shrink-0 bg-[#111113] flex-wrap">
         <button
           onClick={toggleAudio}
           disabled={!localStream}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-            isAudioEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'
-          }`}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isAudioEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'}`}
           title={isAudioEnabled ? 'Mute' : 'Unmute'}
         >
           {isAudioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
@@ -1390,175 +1527,150 @@ export const VideoRoom = () => {
         <button
           onClick={toggleVideo}
           disabled={!localStream}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-            isVideoEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'
-          }`}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isVideoEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'}`}
           title={isVideoEnabled ? 'Stop Video' : 'Start Video'}
         >
           {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
         </button>
 
-        <button
-          onClick={async () => {
-            if (isScreenSharing) {
-              stopScreenShare(socketRef)
-              if (socketRef.current) socketRef.current.emit('screen-share-stopped')
-            } else {
-              const stream = await startScreenShare(socketRef)
-              if (stream && socketRef.current) socketRef.current.emit('screen-share-started')
-            }
-          }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-            isScreenSharing ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'
-          }`}
-          title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
-        >
-          <Share2 size={20} />
-        </button>
+        {!isMobile && (
+          <button
+            onClick={async () => {
+              if (isScreenSharing) {
+                stopScreenShare(socketRef)
+                if (socketRef.current) socketRef.current.emit('screen-share-stopped')
+              } else {
+                const stream = await startScreenShare(socketRef)
+                if (stream && socketRef.current) socketRef.current.emit('screen-share-started')
+              }
+            }}
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isScreenSharing ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+          >
+            <Share2 size={20} />
+          </button>
+        )}
 
         {isHost && (
           <button
             onClick={isRecording ? stopRecording : startRecording}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-              isRecording ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse' : 'bg-white/10 text-white hover:bg-white/20'
-            }`}
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse' : 'bg-white/10 text-white hover:bg-white/20'}`}
             title={isRecording ? 'Stop Recording' : 'Start Recording'}
           >
             {isRecording ? <div className="flex flex-col items-center"><Circle size={12} fill="currentColor" className="mb-0.5" /><span className="text-[9px] font-bold">{formatRecordingTime(recordingTime)}</span></div> : <Circle size={20} />}
           </button>
         )}
 
-        <div className="relative">
+        {!isMobile && (
+          <div className="relative">
+            <button
+              onClick={() => setShowReactions((prev) => !prev)}
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-all"
+              title="Reactions"
+            >
+              <Smile size={20} />
+            </button>
+            {showReactions && (
+              <div className="absolute bottom-14 left-1/2 -translate-x-1/2 bg-[#1C1C1E] border border-white/10 rounded-2xl px-3 py-2 flex gap-2 shadow-2xl">
+                {['👍', '❤️', '😂', '😮', '👏', '🎉'].map((emoji) => (
+                  <button key={emoji} onClick={() => sendReaction(emoji)} className="text-2xl hover:scale-125 transition-transform" type="button">{emoji}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isMobile && (
           <button
-            onClick={() => setShowReactions((prev) => !prev)}
-            className="w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-all"
-            title="Reactions"
+            onClick={() => {
+              const newVal = !raisedHand
+              setRaisedHand(newVal)
+              if (socketRef.current) socketRef.current.emit('raise-hand', newVal)
+            }}
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${raisedHand ? 'bg-yellow-400 text-black hover:bg-yellow-300' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title="Raise hand"
           >
-            <Smile size={20} />
+            <Hand size={20} />
           </button>
-          {showReactions && (
-            <div className="absolute bottom-14 left-1/2 -translate-x-1/2 bg-[#1C1C1E] border border-white/10 rounded-2xl px-3 py-2 flex gap-2 shadow-2xl">
-              {['👍', '❤️', '😂', '😮', '👏', '🎉'].map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => sendReaction(emoji)}
-                  className="text-2xl hover:scale-125 transition-transform"
-                  type="button"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
 
         <button
-          onClick={() => {
-            const newVal = !raisedHand
-            setRaisedHand(newVal)
-            if (socketRef.current) socketRef.current.emit('raise-hand', newVal)
-          }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-            raisedHand ? 'bg-yellow-400 text-black hover:bg-yellow-300' : 'bg-white/10 text-white hover:bg-white/20'
-          }`}
-          title="Raise hand"
-        >
-          <Hand size={20} />
-        </button>
-
-        <button
-          onClick={() => {
-            setShowParticipants(!showParticipants)
-            setShowChat(false)
-            setShowNotes(false)
-            setShowTasks(false)
-          }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showParticipants ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+          onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); setShowNotes(false); setShowTasks(false) }}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showParticipants ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
           title="Show Participants"
         >
           <Users size={20} />
-          <span className="absolute top-0 right-0 -mt-1 -mr-1 bg-[#7C3AED] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-            {allParticipants.length}
-          </span>
+          <span className="absolute top-0 right-0 -mt-1 -mr-1 bg-[#7C3AED] text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">{allParticipants.length}</span>
         </button>
 
         <button
-          onClick={() => {
-            setShowChat(!showChat)
-            setShowParticipants(false)
-            setShowNotes(false)
-            setShowTasks(false)
-          }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showChat ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+          onClick={() => { setShowChat(!showChat); setShowParticipants(false); setShowNotes(false); setShowTasks(false) }}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showChat ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
           title="Toggle Chat"
         >
           <MessageSquare size={20} />
           {!showChat && hasUnread && <span className="absolute top-0 right-0 -mt-1 -mr-1 bg-red-500 w-3 h-3 rounded-full" />}
         </button>
 
-        <button
-          onClick={() => {
-            setShowNotes(!showNotes)
-            setShowChat(false)
-            setShowParticipants(false)
-            setShowTasks(false)
-          }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showNotes ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
-          title="Shared Notes"
-        >
-          <FileText size={20} />
-        </button>
+        {!isMobile && (
+          <button
+            onClick={() => { setShowNotes(!showNotes); setShowChat(false); setShowParticipants(false); setShowTasks(false) }}
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showNotes ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title="Shared Notes"
+          >
+            <FileText size={20} />
+          </button>
+        )}
 
-        <button
-          onClick={() => {
-            setShowTasks(!showTasks)
-            setShowChat(false)
-            setShowParticipants(false)
-            setShowNotes(false)
-          }}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all relative ${showTasks ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
-          title="Tasks"
-        >
-          <CheckSquare size={20} />
-        </button>
+        {!isMobile && (
+          <button
+            onClick={() => { setShowTasks(!showTasks); setShowChat(false); setShowParticipants(false); setShowNotes(false) }}
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showTasks ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title="Tasks"
+          >
+            <CheckSquare size={20} />
+          </button>
+        )}
 
         <button
           onClick={handleEndCall}
-          className="w-12 h-12 rounded-full bg-red-500 text-white hover:bg-red-600 flex items-center justify-center transition-all ml-2"
+          className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-500 text-white hover:bg-red-600 flex items-center justify-center transition-all ml-1 sm:ml-2"
           title="End Call"
         >
           <PhoneOff size={20} />
         </button>
 
-        <div className="relative ml-2">
-          <button
-            onClick={() => setShowShortcuts(prev => !prev)}
-            className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center text-xs font-medium transition"
-            title="Keyboard shortcuts"
-          >
-            ?
-          </button>
-          {showShortcuts && (
-            <div className="absolute bottom-12 right-0 bg-[#1C1C1E] border border-white/10 rounded-2xl p-4 w-52 shadow-2xl">
-              <p className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3">Shortcuts</p>
-              <div className="space-y-2">
-                {[
-                  { key: 'M', label: 'Mute / Unmute' },
-                  { key: 'V', label: 'Video on / off' },
-                  { key: 'C', label: 'Toggle chat' },
-                  { key: 'P', label: 'Participants' },
-                  { key: 'E', label: 'End meeting' },
-                  { key: 'Esc', label: 'Close panels' },
-                ].map(({ key, label }) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-xs text-white/50">{label}</span>
-                    <kbd className="bg-white/10 text-white/70 text-xs px-2 py-0.5 rounded-lg font-mono">{key}</kbd>
-                  </div>
-                ))}
+        {!isMobile && (
+          <div className="relative ml-1 sm:ml-2">
+            <button
+              onClick={() => setShowShortcuts(prev => !prev)}
+              className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white flex items-center justify-center text-xs font-medium transition"
+              title="Keyboard shortcuts"
+            >
+              ?
+            </button>
+            {showShortcuts && (
+              <div className="absolute bottom-12 right-0 bg-[#1C1C1E] border border-white/10 rounded-2xl p-4 w-52 shadow-2xl">
+                <p className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3">Shortcuts</p>
+                <div className="space-y-2">
+                  {[
+                    { key: 'M', label: 'Mute / Unmute' },
+                    { key: 'V', label: 'Video on / off' },
+                    { key: 'C', label: 'Toggle chat' },
+                    { key: 'P', label: 'Participants' },
+                    { key: 'E', label: 'End meeting' },
+                    { key: 'Esc', label: 'Close panels' },
+                  ].map(({ key, label }) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <span className="text-xs text-white/50">{label}</span>
+                      <kbd className="bg-white/10 text-white/70 text-xs px-2 py-0.5 rounded-lg font-mono">{key}</kbd>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {showEndModal && (
@@ -1574,10 +1686,50 @@ export const VideoRoom = () => {
                 Cancel
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setShowEndModal(false)
-                  toast.success('Meeting ended')
-                  navigate(`/meeting/${meetingId}/summary`)
+                  setIsEndingCall(true)
+                  isEndingCallRef.current = true
+                  try {
+                    // Stop recording and wait for upload if active
+                    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                      mediaRecorderRef.current.stop()
+                      mediaRecorderRef.current = null
+                      setIsRecording(false)
+                      // Wait for the recording upload to complete
+                      if (recordingUploadPromiseRef.current) {
+                        try {
+                          await recordingUploadPromiseRef.current
+                        } catch (e) {
+                          console.error('[VideoRoom] Recording upload failed during end:', e)
+                        }
+                      }
+                    }
+                    // Stop speech recognition
+                    if (recognitionRef.current) {
+                      try { recognitionRef.current.stop() } catch (e) {}
+                    }
+                    // Stop media tracks
+                    stopMedia()
+                    if (isHost) {
+                      // Emit end-meeting to server (will broadcast meeting-ended to others)
+                      if (socketRef.current) {
+                        socketRef.current.emit('end-meeting', meetingId)
+                      }
+                    } else {
+                      toast.success('You left the meeting')
+                    }
+                    // Disconnect socket and navigate
+                    if (socketRef.current) {
+                      socketRef.current.disconnect()
+                      socketRef.current = null
+                    }
+                    navigate(`/meeting/${meetingId}/summary`)
+                  } catch (err) {
+                    console.error('[VideoRoom] Error ending meeting:', err)
+                    stopMedia()
+                    navigate(`/meeting/${meetingId}/summary`)
+                  }
                 }}
                 className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl py-2.5 text-sm font-medium transition"
               >
@@ -1594,7 +1746,7 @@ export const VideoRoom = () => {
           onClick={() => setShowLayoutModal(false)}
         >
           <div
-            className="relative bg-[#1C1C1E] border border-white/10 rounded-2xl p-6 w-96 shadow-2xl"
+            className="relative bg-[#1C1C1E] border border-white/10 rounded-2xl p-6 w-[calc(100vw-2rem)] max-w-96 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <button

@@ -53,12 +53,10 @@ export const getMeetingByRoomId = async (req, res) => {
       .populate('participants', '_id name email');
       
     if (meeting) {
-      // Access Control
-      if (meeting.allowedParticipants && meeting.allowedParticipants.length > 0) {
+      // Access Control — only enforce when user is authenticated AND allowedParticipants is set
+      if (req.user && meeting.allowedParticipants && meeting.allowedParticipants.length > 0) {
         const isAllowed = meeting.allowedParticipants.some(p => p._id.toString() === req.user._id.toString()) || meeting.host._id.toString() === req.user._id.toString();
         if (!isAllowed) {
-          // We don't check teams yet since teams might be empty, but ideally we check if user is in allowedTeams
-          // For now, simple check
           return res.status(403).json({ message: 'You do not have permission to join this meeting.' });
         }
       }

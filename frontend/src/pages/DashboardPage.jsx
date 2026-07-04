@@ -140,7 +140,14 @@ export const DashboardPage = () => {
         <header className="mt-10 mb-8">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-sm text-[#6B6560] mb-1">Good morning,</p>
+              <p className="text-sm text-[#6B6560] mb-1">
+                {(() => {
+                  const hour = new Date().getHours();
+                  if (hour < 12) return 'Good morning,';
+                  if (hour < 17) return 'Good afternoon,';
+                  return 'Good evening,';
+                })()}
+              </p>
               <h2 className="text-3xl font-semibold text-[#1A1A1A]">{user?.name || 'User'}</h2>
             </div>
             <div className="text-sm text-[#6B6560]">{currentDate}</div>
@@ -260,8 +267,20 @@ export const DashboardPage = () => {
             m.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
             m.roomId?.toLowerCase().includes(searchQuery.toLowerCase())
           )
-          const upcomingMeetings = filteredMeetings.filter(m => m.status !== 'completed')
-          const pastMeetings = filteredMeetings.filter(m => m.status === 'completed')
+          const ONE_DAY = 24 * 60 * 60 * 1000;
+          const now = Date.now();
+          
+          const upcomingMeetings = filteredMeetings.filter(m => {
+            if (m.status === 'completed') return false;
+            const meetingDate = new Date(m.scheduledAt || m.createdAt).getTime();
+            return (now - meetingDate) < ONE_DAY; // Not older than 24h
+          })
+          
+          const pastMeetings = filteredMeetings.filter(m => {
+            if (m.status === 'completed') return true;
+            const meetingDate = new Date(m.scheduledAt || m.createdAt).getTime();
+            return (now - meetingDate) >= ONE_DAY; // Treat abandoned meetings as past
+          })
 
           return (
             <>

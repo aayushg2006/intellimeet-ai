@@ -42,7 +42,7 @@ const allowedOrigins = [
 // Configure Socket.io
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: process.env.NODE_ENV !== 'production' ? true : allowedOrigins,
     methods: ['GET', 'POST'],
     credentials: true,
   }
@@ -61,6 +61,12 @@ app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+    
+    // In development, allow all origins (useful for local network testing)
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }

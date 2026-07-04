@@ -71,3 +71,6 @@ typings/
 
 Zidio Web (1).pdf
 implementation_plan.md
+
+backend/clearDB.js
+backend/drop.js
