@@ -229,6 +229,17 @@ const socketHandler = (io) => {
       }
     });
 
+    // ─── MEDIA STATE CHANGE (audio/video toggle) ───
+    socket.on('media-state-change', (data) => {
+      if (socket.roomId) {
+        socket.to(socket.roomId).emit('media-state-change', {
+          socketId: socket.id,
+          isAudio: data.isAudio,
+          isVideo: data.isVideo,
+        });
+      }
+    });
+
     // ─── CHAT ───
     socket.on('chat-message', async (msgData) => {
       try {

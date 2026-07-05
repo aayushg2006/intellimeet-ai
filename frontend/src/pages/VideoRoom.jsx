@@ -91,6 +91,14 @@ const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, localStream, re
               playsInline
               className={`w-full h-full ${tile.isScreenShare ? 'object-contain bg-black' : 'object-cover'}`}
             />
+            {!tile.isVideo && !tile.isScreenShare && (
+              <div className="absolute inset-0 bg-[#2C2C2E] flex flex-col items-center justify-center">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center mb-2">
+                  <span className="text-xl font-bold text-white">{tile.avatar || tile.name?.charAt(0)?.toUpperCase() || '?'}</span>
+                </div>
+                <p className="text-white/70 text-sm">{tile.name}</p>
+              </div>
+            )}
           </>
         ) : (
           <div className="w-full h-full bg-[#2C2C2E] flex flex-col items-center justify-center">
@@ -501,6 +509,18 @@ export const VideoRoom = () => {
         setRemoteScreenSharer(data.sharing ? data.socketId : null)
       })
 
+      // Media state changes (audio/video toggle from remote participants)
+      socket.on('media-state-change', (data) => {
+        if (cancelled) return
+        setRemoteParticipants((prev) =>
+          prev.map((p) =>
+            p.id === data.socketId
+              ? { ...p, isAudio: data.isAudio, isVideo: data.isVideo }
+              : p
+          )
+        )
+      })
+
       // When the host ends the meeting (received by NON-host participants)
       socket.on('meeting-ended', () => {
         // Skip if we are the one ending the meeting (host clicks End)
@@ -724,10 +744,26 @@ export const VideoRoom = () => {
 
       switch (e.key.toLowerCase()) {
         case 'm':
-          if (localStream) toggleAudio()
+          if (localStream) {
+            toggleAudio()
+            if (socketRef.current) {
+              socketRef.current.emit('media-state-change', {
+                isAudio: !isAudioEnabled,
+                isVideo: isVideoEnabled,
+              })
+            }
+          }
           break
         case 'v':
-          if (localStream) toggleVideo()
+          if (localStream) {
+            toggleVideo()
+            if (socketRef.current) {
+              socketRef.current.emit('media-state-change', {
+                isAudio: isAudioEnabled,
+                isVideo: !isVideoEnabled,
+              })
+            }
+          }
           break
         case 'e':
           setShowEndModal(true)
@@ -1516,7 +1552,15 @@ export const VideoRoom = () => {
       {/* Bottom Toolbar */}
       <div className="px-2 sm:px-6 py-2 sm:py-2.5 flex items-center justify-center gap-1.5 sm:gap-2 flex-shrink-0 bg-[#111113] flex-wrap">
         <button
-          onClick={toggleAudio}
+          onClick={() => {
+            toggleAudio()
+            if (socketRef.current) {
+              socketRef.current.emit('media-state-change', {
+                isAudio: !isAudioEnabled,
+                isVideo: isVideoEnabled,
+              })
+            }
+          }}
           disabled={!localStream}
           className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isAudioEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'}`}
           title={isAudioEnabled ? 'Mute' : 'Unmute'}
@@ -1525,7 +1569,15 @@ export const VideoRoom = () => {
         </button>
 
         <button
-          onClick={toggleVideo}
+          onClick={() => {
+            toggleVideo()
+            if (socketRef.current) {
+              socketRef.current.emit('media-state-change', {
+                isAudio: isAudioEnabled,
+                isVideo: !isVideoEnabled,
+              })
+            }
+          }}
           disabled={!localStream}
           className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isVideoEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'}`}
           title={isVideoEnabled ? 'Stop Video' : 'Start Video'}

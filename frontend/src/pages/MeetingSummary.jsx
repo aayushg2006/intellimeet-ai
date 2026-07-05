@@ -155,7 +155,11 @@ export const MeetingSummary = () => {
     const poll = async () => {
       const data = await fetchSummary()
       // Keep polling if transcript exists but summary hasn't been generated yet
-      if (data && (!data.summary || data.summary === 'No AI summary generated yet.') && data.transcript?.length > 0) {
+      if (data && 
+          (!data.summary || 
+           data.summary === 'No AI summary generated yet.' || 
+           data.summary.includes('Failed to generate summary')) && 
+          data.transcript?.length > 0) {
         if (!pollingInterval) {
           pollingInterval = setInterval(poll, 3000);
         }
@@ -291,22 +295,33 @@ export const MeetingSummary = () => {
                   {copied ? 'Copied' : 'Copy summary'}
                 </button>
               </div>
-              <p className="text-sm text-[#6B6560] leading-relaxed pt-3">
-                {summaryData.summary}
-              </p>
+              {isGenerating ? (
+                <div className="pt-3 pb-2 space-y-3">
+                  <div className="h-4 bg-gray-200 rounded animate-pulse w-full"></div>
+                  <div className="h-4 bg-gray-200 rounded animate-pulse w-5/6"></div>
+                  <div className="h-4 bg-gray-200 rounded animate-pulse w-4/6"></div>
+                  <p className="text-sm text-[#7C3AED] font-medium flex items-center gap-2 pt-2">
+                    <RefreshCw size={14} className="animate-spin" /> Generating AI Summary...
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-[#6B6560] leading-relaxed pt-3 whitespace-pre-wrap">
+                  {summaryData.summary}
+                </p>
+              )}
               
-              {summaryData.summary === 'No AI summary generated yet.' && summaryData.transcript?.length > 0 && (
+              {!isGenerating && 
+               (!summaryData.summary || 
+                summaryData.summary === 'No AI summary generated yet.' || 
+                summaryData.summary.includes('Failed to generate summary')) && 
+               summaryData.transcript?.length > 0 && (
                 <div className="mt-4">
                   <button 
                     onClick={handleGenerateSummary} 
                     disabled={isGenerating}
                     className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
                   >
-                    {isGenerating ? (
-                      <><RefreshCw size={16} className="animate-spin" /> Generating AI Summary...</>
-                    ) : (
-                      <><Sparkles size={16} /> Generate AI Summary</>
-                    )}
+                    <Sparkles size={16} /> Generate AI Summary
                   </button>
                 </div>
               )}

@@ -1,13 +1,12 @@
-import axios from 'axios';
+import { GoogleGenAI } from '@google/genai';
 
 class AIService {
   constructor() {
-    this.ollamaUrl = 'http://localhost:11434/api/generate';
-    this.modelName = 'qwen2.5:3b';
+    this.modelName = 'gemini-2.5-flash'; // Fast, cost-effective model, great for free tier
   }
 
   /**
-   * Generates a meeting summary using local Ollama and Qwen
+   * Generates a meeting summary using Google Gemini API
    * @param {String} transcript - The full text transcript of the meeting
    * @returns {Object} { summary, actionItems }
    */
@@ -38,19 +37,22 @@ ${transcript}
 `;
 
     try {
-      console.log('Generating AI summary with local Ollama (qwen2.5:3b)...');
-      const response = await axios.post(this.ollamaUrl, {
+      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
+        throw new Error("GEMINI_API_KEY is missing or invalid in .env file");
+      }
+
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      console.log(`Generating AI summary with Google Gemini (${this.modelName})...`);
+      
+      const response = await ai.models.generateContent({
         model: this.modelName,
-        prompt: prompt,
-        stream: false,
-        options: {
+        contents: prompt,
+        config: {
           temperature: 0.3,
         }
-      }, {
-        timeout: 120000 // 2 minute timeout — Ollama on CPU can be slow
       });
 
-      const resultText = response.data.response || '';
+      const resultText = response.text || '';
       
       // Parse the result
       let summary = '';
@@ -74,13 +76,9 @@ ${transcript}
 
       return { summary, actionItems };
     } catch (error) {
-      if (error.code === 'ECONNABORTED') {
-        console.error('Ollama timed out after 2 minutes.');
-      } else {
-        console.error('Ollama generation error:', error.message);
-      }
+      console.error('Gemini API generation error:', error.message);
       return {
-        summary: "Failed to generate summary. Is Ollama running locally?",
+        summary: "Failed to generate summary. Please check your Gemini API Key configuration.",
         actionItems: []
       };
     }
