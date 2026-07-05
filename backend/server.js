@@ -90,6 +90,11 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// Render ping route
+app.get('/', (_req, res) => {
+  res.send('IntellMeet API is running');
+});
+
 // ─── ROUTES ───
 import authRoutes from './routes/authRoutes.js';
 import meetingRoutes from './routes/meetingRoutes.js';

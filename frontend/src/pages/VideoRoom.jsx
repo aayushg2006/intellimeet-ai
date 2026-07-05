@@ -370,7 +370,7 @@ export const VideoRoom = () => {
       }
 
       // 3. Connect socket
-      const socketUrl = '/'
+      const socketUrl = import.meta.env.VITE_API_URL || '/'
       const socket = io(socketUrl, { 
         path: '/socket.io',
         auth: { token }
