@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore'
 import { Mail, Lock, Eye, EyeOff, Loader } from 'lucide-react'
 import axios from 'axios'
 
-const GOOGLE_AUTH_URL = '/api/auth/google'
+const GOOGLE_AUTH_URL = `${import.meta.env.VITE_API_URL || ''}/api/auth/google`
 
 export const LoginPage = () => {
   const navigate = useNavigate()
