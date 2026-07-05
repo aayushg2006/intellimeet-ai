@@ -791,9 +791,35 @@ export const VideoRoom = () => {
   }, [localStream, isAudioEnabled, isVideoEnabled])
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    const url = window.location.href
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(() => {
+        setCopied(true)
+        toast.success('Link copied!')
+        setTimeout(() => setCopied(false), 2000)
+      }).catch(() => {
+        // Fallback
+        const el = document.createElement('textarea')
+        el.value = url
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand('copy')
+        document.body.removeChild(el)
+        setCopied(true)
+        toast.success('Link copied!')
+        setTimeout(() => setCopied(false), 2000)
+      })
+    } else {
+      const el = document.createElement('textarea')
+      el.value = url
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+      setCopied(true)
+      toast.success('Link copied!')
+      setTimeout(() => setCopied(false), 2000)
+    }
   }
 
   const handleAcceptRequest = (request) => {
