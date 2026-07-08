@@ -403,7 +403,14 @@ const socketHandler = (io) => {
                     const notesText = meeting.notes || '';
 
                     // Call Ollama for summary and action items
-                    const { summary, conclusions, actionItems } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
+                    const {
+                      summary,
+                      transcriptSummary,
+                      chatSummary,
+                      notesSummary,
+                      conclusions,
+                      actionItems
+                    } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
                     
                     const enrichedActionItems = [];
 
@@ -411,10 +418,11 @@ const socketHandler = (io) => {
                     if (actionItems && actionItems.length > 0) {
                       for (let index = 0; index < actionItems.length; index += 1) {
                         const item = actionItems[index];
+                        const taskText = item.task || '';
                         try {
                           const createdTask = await Task.create({
-                            title: item.substring(0, 50) + (item.length > 50 ? '...' : ''),
-                            description: item,
+                            title: taskText.substring(0, 50) + (taskText.length > 50 ? '...' : ''),
+                            description: taskText,
                             status: 'Todo',
                             priority: 'medium',
                             meetingId: meetingId,
@@ -425,9 +433,10 @@ const socketHandler = (io) => {
                           });
                           enrichedActionItems.push({
                             id: index + 1,
-                            task: item,
-                            assignee: 'Unassigned',
-                            status: 'pending',
+                            task: taskText,
+                            assignee: item.assignee || 'Unassigned',
+                            status: item.status || 'pending',
+                            meetingTitle: meetingTitle,
                             taskId: createdTask._id.toString(),
                           });
                         } catch (e) {
@@ -441,14 +450,18 @@ const socketHandler = (io) => {
                       {
                         $set: {
                           summary: summary,
+                          transcriptSummary: transcriptSummary || '',
+                          chatSummary: chatSummary || '',
+                          notesSummary: notesSummary || '',
                           conclusions: conclusions || '',
-                          actionItems: enrichedActionItems.length > 0
+                              actionItems: enrichedActionItems.length > 0
                             ? enrichedActionItems
                             : actionItems.map((item, index) => ({
                                 id: index + 1,
-                                task: item,
-                                assignee: 'Unassigned',
-                                status: 'pending'
+                                task: item.task,
+                                assignee: item.assignee || 'Unassigned',
+                                status: item.status || 'pending',
+                                meetingTitle: meetingTitle
                               }))
                         }
                       }

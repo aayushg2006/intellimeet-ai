@@ -9,7 +9,7 @@ import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
 import { ScheduleMeetingModal } from '../components/ScheduleMeetingModal'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useSignedUrl } from '../hooks/useSignedUrl'
-import { getMeetingAccessDetails, getMeetingAccessLabel, getMeetingTypeLabel } from '../utils/meetingDisplay'
+import { formatMeetingDate, getMeetingAccessDetails, getMeetingAccessLabel, getMeetingTypeLabel } from '../utils/meetingDisplay'
 
 export const DashboardPage = () => {
   const navigate = useNavigate()
@@ -295,7 +295,7 @@ export const DashboardPage = () => {
                           <div>
                             <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
                             <div className="text-xs text-[#6B6560] mt-1">
-                              {new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}
+                              {formatMeetingDate(meeting.scheduledAt || meeting.createdAt)}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <span className="bg-[#F5F2EE] text-[#6B6560] text-[11px] px-2 py-1 rounded-full">
@@ -354,7 +354,7 @@ export const DashboardPage = () => {
                           <div>
                             <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
                             <div className="text-xs text-[#6B6560] mt-1">
-                              {new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}
+                              {formatMeetingDate(meeting.scheduledAt || meeting.createdAt)}
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               <span className="bg-[#F5F2EE] text-[#6B6560] text-[11px] px-2 py-1 rounded-full">

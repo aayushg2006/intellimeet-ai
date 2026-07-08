@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { FileText, ArrowLeft, Clock, Users, CheckSquare, ChevronDown, ChevronUp, Copy, Check, Download, Loader, RefreshCw, Sparkles, Video, Paperclip, FileIcon, Maximize } from 'lucide-react'
 import axios from 'axios'
 import { useSignedUrl } from '../hooks/useSignedUrl'
+import { formatMeetingDate } from '../utils/meetingDisplay'
 
 const RecordingPlayer = ({ recordingKey }) => {
   const { url, loading } = useSignedUrl(recordingKey)
@@ -116,6 +117,175 @@ const SharedFile = ({ file }) => {
   )
 }
 
+const SECTION_TITLES = [
+  'Transcript Summary',
+  'Chat Summary',
+  'Notes Summary',
+  'Conclusions / Decisions',
+  'Conclusions',
+  'Decisions',
+  'Action Items',
+]
+
+const normalizeSectionTitle = (title = '') => {
+  const cleaned = String(title).trim()
+  if (/^conclusions?(\s*\/\s*decisions?)?$/i.test(cleaned)) {
+    return 'Conclusions / Decisions'
+  }
+  return cleaned
+}
+
+const normalizeHeading = (line) => line.replace(/^#{1,6}\s*/, '').replace(/\s+/g, ' ').trim()
+
+const isHeadingLine = (line) => /^#{1,6}\s+/.test(line.trim())
+
+const isBulletLine = (line) => /^(\*|-|\+|\d+[.)])\s+/.test(line.trim())
+
+const stripBulletPrefix = (line) => line.trim().replace(/^(\*|-|\+|\d+[.)])\s+/, '').trim()
+
+const splitOutConclusions = (content = '') => {
+  const text = String(content || '').replace(/\r\n/g, '\n').trim()
+  if (!text) {
+    return { body: '', conclusions: '' }
+  }
+
+  const match = text.match(/(?:^|\n)\s*(CONCLUSIONS?(?:\s*\/\s*DECISIONS?)?|DECISIONS?)\s*:\s*([\s\S]*)/i)
+  if (!match) {
+    return { body: text, conclusions: '' }
+  }
+
+  const headingIndex = text.search(/(?:^|\n)\s*(CONCLUSIONS?(?:\s*\/\s*DECISIONS?)?|DECISIONS?)\s*:\s*/i)
+  const body = headingIndex > 0 ? text.slice(0, headingIndex).trim() : ''
+  const conclusions = match[2] ? match[2].trim() : ''
+
+  return {
+    body,
+    conclusions,
+  }
+}
+
+const parseSummarySections = (summaryText, conclusionsText) => {
+  const rawText = typeof summaryText === 'string' ? summaryText.replace(/\r\n/g, '\n').trim() : ''
+  const sections = []
+
+  if (rawText) {
+    const lines = rawText.split('\n')
+    let current = null
+
+    const pushCurrent = () => {
+      if (!current) return
+      const content = current.lines.join('\n').trim()
+      if (content) {
+        sections.push({
+          title: current.title,
+          content,
+        })
+      }
+    }
+
+    for (const line of lines) {
+      if (isHeadingLine(line)) {
+        pushCurrent()
+        current = {
+          title: normalizeHeading(line),
+          lines: [],
+        }
+        continue
+      }
+
+      const trimmed = line.trim()
+      if (!current && trimmed) {
+        current = {
+          title: 'Summary',
+          lines: [],
+        }
+      }
+
+      if (current) {
+        current.lines.push(line)
+      }
+    }
+
+    pushCurrent()
+
+    if (!sections.length) {
+      sections.push({
+        title: 'Summary',
+        content: rawText,
+      })
+    }
+  }
+
+  if (conclusionsText && conclusionsText.trim()) {
+    const hasDedicatedConclusions = sections.some((section) =>
+      ['Conclusions / Decisions', 'Conclusions', 'Decisions'].includes(section.title)
+    )
+
+    if (!hasDedicatedConclusions) {
+      sections.push({
+        title: 'Conclusions / Decisions',
+        content: conclusionsText.replace(/\r\n/g, '\n').trim(),
+      })
+    }
+  }
+
+  return sections
+}
+
+const SummaryBody = ({ content }) => {
+  const paragraphs = []
+  const bulletGroups = []
+  let currentBullets = []
+
+  const flushBullets = () => {
+    if (currentBullets.length) {
+      bulletGroups.push([...currentBullets])
+      currentBullets = []
+    }
+  }
+
+  for (const line of content.replace(/\r\n/g, '\n').split('\n').map((value) => value.trim())) {
+    if (!line) {
+      flushBullets()
+      continue
+    }
+
+    if (isHeadingLine(line)) {
+      continue
+    }
+
+    if (isBulletLine(line)) {
+      currentBullets.push(stripBulletPrefix(line))
+      continue
+    }
+
+    flushBullets()
+    paragraphs.push(line)
+  }
+
+  flushBullets()
+
+  return (
+    <div className="space-y-3">
+      {paragraphs.map((paragraph, index) => (
+        <p key={`${paragraph}-${index}`} className="text-sm text-[#6B6560] leading-relaxed whitespace-pre-wrap">
+          {paragraph}
+        </p>
+      ))}
+      {bulletGroups.map((group, index) => (
+        <ul key={`bullets-${index}`} className="space-y-2">
+          {group.map((bullet, bulletIndex) => (
+            <li key={`${bullet}-${bulletIndex}`} className="text-sm text-[#6B6560] leading-relaxed flex gap-2">
+              <span className="text-[#7C3AED] mt-1">-</span>
+              <span className="whitespace-pre-wrap">{bullet}</span>
+            </li>
+          ))}
+        </ul>
+      ))}
+    </div>
+  )
+}
+
 export const MeetingSummary = () => {
   const navigate = useNavigate()
   const { meetingId } = useParams()
@@ -129,6 +299,65 @@ export const MeetingSummary = () => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { document.title = 'Meeting Summary — IntellMeet' }, [])
+
+  const summarySections = useMemo(() => {
+    if (!summaryData) return []
+
+    const notesSplit = splitOutConclusions(summaryData.notesSummary || '')
+    const structuredSections = [
+      summaryData.transcriptSummary ? { title: 'Transcript Summary', content: summaryData.transcriptSummary } : null,
+      summaryData.chatSummary ? { title: 'Chat Summary', content: summaryData.chatSummary } : null,
+      notesSplit.body ? { title: 'Notes Summary', content: notesSplit.body } : null,
+    ].filter(Boolean)
+
+    const parsed = parseSummarySections(summaryData.summary, '')
+    const preferredOrder = SECTION_TITLES
+
+    const parsedSections = parsed
+      .filter((section) => section.title !== 'Action Items')
+      .filter((section) => !['Conclusions / Decisions', 'Conclusions', 'Decisions'].includes(section.title))
+
+    const merged = [...structuredSections]
+    parsedSections.forEach((section) => {
+      if (!merged.some((item) => normalizeSectionTitle(item.title) === normalizeSectionTitle(section.title))) {
+        merged.push(section)
+      }
+    })
+
+    return merged.sort((a, b) => {
+      const aIndex = preferredOrder.indexOf(normalizeSectionTitle(a.title))
+      const bIndex = preferredOrder.indexOf(normalizeSectionTitle(b.title))
+      const normalizedA = aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex
+      const normalizedB = bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex
+      return normalizedA - normalizedB
+    })
+  }, [summaryData])
+
+  const resolvedConclusions = useMemo(() => {
+    if (!summaryData) return ''
+    const notesSplit = splitOutConclusions(summaryData.notesSummary || '')
+    return summaryData.conclusions || notesSplit.conclusions || ''
+  }, [summaryData])
+
+  const summaryCopyText = useMemo(() => {
+    if (!summaryData) return ''
+
+    const sections = summarySections.length
+      ? summarySections
+      : summaryData.summary
+        ? parseSummarySections(summaryData.summary, '')
+        : []
+
+    const parts = sections
+      .filter((section) => !['Conclusions / Decisions', 'Conclusions', 'Decisions'].includes(section.title))
+      .map((section) => `${section.title}\n${section.content.trim()}`)
+
+    if (resolvedConclusions) {
+      parts.push(`Conclusions / Decisions\n${resolvedConclusions.trim()}`)
+    }
+
+    return parts.join('\n\n').trim()
+  }, [summaryData, summarySections, resolvedConclusions])
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -199,8 +428,8 @@ export const MeetingSummary = () => {
 
   const handleCopy = async () => {
     try {
-      if (summaryData?.summary) {
-        await navigator.clipboard.writeText(summaryData.summary)
+      if (summaryCopyText) {
+        await navigator.clipboard.writeText(summaryCopyText)
         setCopied(true)
         window.setTimeout(() => setCopied(false), 2000)
       }
@@ -265,7 +494,7 @@ export const MeetingSummary = () => {
               <h1 className="text-2xl font-semibold text-[#1A1A1A]">{summaryData.title}</h1>
           <div className="flex flex-wrap gap-4 mt-3">
             <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
-              {summaryData.date}
+              {formatMeetingDate(summaryData.date)}
             </span>
             <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
               <Clock size={14} />
@@ -304,9 +533,24 @@ export const MeetingSummary = () => {
                   </p>
                 </div>
               ) : (
-                <p className="text-sm text-[#6B6560] leading-relaxed pt-3 whitespace-pre-wrap">
-                  {summaryData.summary}
-                </p>
+                <div className="pt-3 space-y-4">
+                  {summarySections.length > 0 ? (
+                    summarySections.map((section) => (
+                      <div key={section.title} className="rounded-2xl border border-[#E8E4DD] bg-[#FAF9F7] p-4">
+                        <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#E8E4DD]">
+                          <h3 className="text-sm font-semibold text-[#1A1A1A]">{section.title}</h3>
+                        </div>
+                        <div className="pt-3">
+                          <SummaryBody content={section.content} />
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-[#6B6560] leading-relaxed whitespace-pre-wrap">
+                      {summaryData.summary}
+                    </p>
+                  )}
+                </div>
               )}
               
               {!isGenerating && 
@@ -330,15 +574,13 @@ export const MeetingSummary = () => {
               </div>
             </div>
 
-            {summaryData.conclusions && summaryData.conclusions.trim() !== '' && (
+            {resolvedConclusions && resolvedConclusions.trim() !== '' && (
               <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[#1A1A1A] pb-3 border-b border-[#E8E4DD]">
                   <Sparkles size={16} className="text-[#7C3AED]" />
                   Conclusions / Decisions
                 </div>
-                <p className="text-sm text-[#6B6560] leading-relaxed pt-3 whitespace-pre-wrap">
-                  {summaryData.conclusions}
-                </p>
+                <SummaryBody content={resolvedConclusions} />
               </div>
             )}
 
@@ -376,6 +618,11 @@ export const MeetingSummary = () => {
                       <p className="text-xs text-[#6B6560] mt-1">
                         {item.assignee || 'Unassigned'} · {item.status || 'pending'}
                       </p>
+                      {summaryData.title && (
+                        <p className="text-[11px] text-[#7C3AED] mt-1">
+                          From meeting: {summaryData.title}
+                        </p>
+                      )}
                     </div>
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full ${
@@ -497,7 +744,7 @@ export const MeetingSummary = () => {
                 </div>
                 <div>
                   <p className="text-xs text-[#6B6560]">Date</p>
-                  <p className="font-medium text-[#1A1A1A]">{summaryData.date}</p>
+                  <p className="font-medium text-[#1A1A1A]">{formatMeetingDate(summaryData.date)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-[#6B6560]">Duration</p>

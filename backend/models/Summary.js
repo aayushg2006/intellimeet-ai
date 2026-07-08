@@ -8,6 +8,9 @@ const summarySchema = new mongoose.Schema({
   duration: { type: String },
   participants: [{ name: String, role: String, avatar: String }],
   summary: { type: String },
+  transcriptSummary: { type: String },
+  chatSummary: { type: String },
+  notesSummary: { type: String },
   conclusions: { type: String },
   actionItems: [{
     id: Number,

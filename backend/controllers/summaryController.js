@@ -34,7 +34,8 @@ export const getSummaryByMeeting = async (req, res) => {
       task: t.title,
       assignee: t.assignee?.name || 'Unassigned',
       status: t.status,
-      done: t.status === 'Done'
+      done: t.status === 'Done',
+      meetingTitle: t.meetingTitle || meeting.title
     }));
 
     let allActionItems = summary?.actionItems || [];
@@ -51,9 +52,13 @@ export const getSummaryByMeeting = async (req, res) => {
           assignee: task.assignee,
           status: task.status,
           done: task.done,
+          meetingTitle: task.meetingTitle || meeting.title
         };
       }
-      return item;
+      return {
+        ...item,
+        meetingTitle: meeting.title
+      };
     });
     const seenTaskIds = new Set(
       enrichedActionItems
@@ -70,7 +75,8 @@ export const getSummaryByMeeting = async (req, res) => {
         task: '[No Action Items listed]',
         assignee: 'Unassigned',
         status: 'pending',
-        done: false
+        done: false,
+        meetingTitle: meeting.title
       });
     }
 
@@ -82,6 +88,9 @@ export const getSummaryByMeeting = async (req, res) => {
       duration: calculatedDuration,
       participants: meeting.participants.map(p => p.name) || [],
       summary: summary?.summary || 'No AI summary generated yet.',
+      transcriptSummary: summary?.transcriptSummary || '',
+      chatSummary: summary?.chatSummary || '',
+      notesSummary: summary?.notesSummary || '',
       conclusions: summary?.conclusions || '',
       actionItems: combinedActionItems,
       transcript: summary?.transcript || [],
@@ -129,19 +138,29 @@ export const generatePendingSummary = async (req, res) => {
       .map((message) => `${message.sender?.name || 'User'}: ${message.text}`)
       .join('\n');
     const notesText = meeting.notes || '';
-    const { summary, conclusions, actionItems } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
+    const {
+      summary,
+      transcriptSummary,
+      chatSummary,
+      notesSummary,
+      conclusions,
+      actionItems
+    } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
 
     await Summary.updateOne(
       { _id: summaryDoc._id },
       {
         $set: {
           summary: summary,
+          transcriptSummary: transcriptSummary || '',
+          chatSummary: chatSummary || '',
+          notesSummary: notesSummary || '',
           conclusions: conclusions || '',
           actionItems: actionItems.map((item, index) => ({
             id: index + 1,
-            task: item,
-            assignee: 'Unassigned',
-            status: 'pending',
+            task: item.task,
+            assignee: item.assignee || 'Unassigned',
+            status: item.status || 'pending',
             taskId: summaryDoc.actionItems?.[index]?.taskId || null
           }))
         }

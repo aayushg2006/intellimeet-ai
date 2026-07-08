@@ -14,7 +14,7 @@ import { useAuthStore } from '../store/authStore'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import KanbanBoard from '../components/KanbanBoard'
 import TaskModal from '../components/TaskModal'
-import { getMeetingAccessDetails, getMeetingAccessLabel, getMeetingTypeLabel } from '../utils/meetingDisplay'
+import { formatMeetingDate, getMeetingAccessDetails, getMeetingAccessLabel, getMeetingTypeLabel } from '../utils/meetingDisplay'
 
 export const TeamWorkspace = () => {
   const navigate = useNavigate()
@@ -193,7 +193,7 @@ export const TeamWorkspace = () => {
                         </div>
                         <p className="text-xs text-[#6B6560] flex items-center gap-1.5">
                           <Clock size={12} />
-                          {new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}
+                          {formatMeetingDate(meeting.scheduledAt || meeting.createdAt)}
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <span className="bg-[#F5F2EE] text-[#6B6560] text-[11px] px-2 py-1 rounded-full">

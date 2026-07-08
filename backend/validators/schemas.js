@@ -173,6 +173,10 @@ export const updateTaskSchema = z.object({
 export const createSummarySchema = z.object({
   meetingId: z.string({ required_error: 'Meeting ID is required' }),
   summary: z.string().optional(),
+  transcriptSummary: z.string().optional(),
+  chatSummary: z.string().optional(),
+  notesSummary: z.string().optional(),
+  conclusions: z.string().optional(),
   actionItems: z.array(z.object({
     id: z.number().optional(),
     task: z.string(),
