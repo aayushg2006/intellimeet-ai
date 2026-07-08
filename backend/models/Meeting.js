@@ -8,10 +8,11 @@ const meetingSchema = new mongoose.Schema({
   scheduledAt: { type: Date },
   endedAt: { type: Date },
   meetingType: { type: String, enum: ['internal', 'external', 'standup', 'review', 'one-on-one', 'other'], default: 'other' },
+  accessMode: { type: String, enum: ['personal', 'organization', 'teams', 'people', 'mixed'], default: 'personal' },
   status: { type: String, enum: ['scheduled', 'ongoing', 'completed'], default: 'scheduled' },
   roomId: { type: String, required: true, unique: true }, // For socket.io/WebRTC
   organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }, // null = personal
-  allowedParticipants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // empty means all organization members
+  allowedParticipants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // explicit org members invited to join directly
   allowedTeams: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Team' }],
   recordingKey: { type: String, default: '' }, // S3 key for the meeting recording
   attachments: [{

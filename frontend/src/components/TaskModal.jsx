@@ -1,45 +1,19 @@
-import { useState, useEffect } from 'react';
-import { X, Calendar, User, Tag, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { X, Calendar, Tag } from 'lucide-react';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 
 const TaskModal = ({ isOpen, onClose, task, initialStatus, workspace, onSave, onDelete }) => {
   const { token } = useAuthStore();
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    status: initialStatus || 'Todo',
-    priority: 'medium',
-    dueDate: '',
-    tags: '',
-    assignee: ''
-  });
-  
-  // A real app would fetch org/team members here. For now we just use a generic input or self.
-
-  useEffect(() => {
-    if (task) {
-      setFormData({
-        title: task.title || '',
-        description: task.description || '',
-        status: task.status || 'Todo',
-        priority: task.priority || 'medium',
-        dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
-        tags: task.tags ? task.tags.join(', ') : '',
-        assignee: task.assignee?._id || ''
-      });
-    } else {
-      setFormData({
-        title: '',
-        description: '',
-        status: initialStatus || 'Todo',
-        priority: 'medium',
-        dueDate: '',
-        tags: '',
-        assignee: ''
-      });
-    }
-  }, [task, initialStatus]);
+  const [formData, setFormData] = useState(() => ({
+    title: task?.title || '',
+    description: task?.description || '',
+    status: task?.status || initialStatus || 'Todo',
+    priority: task?.priority || 'medium',
+    dueDate: task?.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
+    tags: task?.tags ? task.tags.join(', ') : '',
+    assignee: task?.assignee?._id || ''
+  }));
 
   if (!isOpen) return null;
 

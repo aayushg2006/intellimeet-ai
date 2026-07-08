@@ -1,3 +1,4 @@
+import Meeting from '../models/Meeting.js';
 import Task from '../models/Task.js';
 
 export const getTasks = async (req, res) => {
@@ -7,10 +8,16 @@ export const getTasks = async (req, res) => {
     if (meetingId) {
       query.meetingId = meetingId;
     } else {
-      query.assignee = req.user._id;
-      query.organizationId = organizationId || null;
+      if (organizationId && organizationId !== 'personal') {
+        query.organizationId = organizationId;
+      } else {
+        query.assignee = req.user._id;
+        query.$or = [{ organizationId: null }, { organizationId: { $exists: false } }];
+      }
     }
-    const tasks = await Task.find(query).populate('assignee', 'name');
+    const tasks = await Task.find(query)
+      .populate('assignee', 'name')
+      .sort({ createdAt: -1 });
     res.json(tasks);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -20,15 +27,28 @@ export const getTasks = async (req, res) => {
 export const createTask = async (req, res) => {
   try {
     const { title, description, status, meetingId, dueDate, organizationId, teamId, priority, tags, assignee } = req.body;
+
+    let meetingTitle = req.body.meetingTitle || '';
+    let derivedOrganizationId = organizationId || null;
+    let derivedMeetingId = meetingId || null;
+
+    if (meetingId && !meetingTitle) {
+      const meeting = await Meeting.findById(meetingId).select('title organizationId');
+      if (meeting) {
+        meetingTitle = meeting.title;
+        derivedOrganizationId = derivedOrganizationId || meeting.organizationId || null;
+      }
+    }
     
     const task = new Task({
       title,
       description,
       status: status || 'Todo',
       assignee: assignee || req.user._id,
-      meetingId,
+      meetingId: derivedMeetingId,
+      meetingTitle,
       dueDate,
-      organizationId: organizationId || null,
+      organizationId: derivedOrganizationId,
       teamId,
       priority,
       tags
@@ -57,6 +77,7 @@ export const updateTask = async (req, res) => {
       if (req.body.tags !== undefined) task.tags = req.body.tags;
       if (req.body.assignee !== undefined) task.assignee = req.body.assignee;
       if (req.body.teamId !== undefined) task.teamId = req.body.teamId;
+      if (req.body.meetingTitle !== undefined) task.meetingTitle = req.body.meetingTitle;
 
       const updatedTask = await task.save();
       res.json(updatedTask);

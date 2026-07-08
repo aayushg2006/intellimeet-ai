@@ -8,11 +8,13 @@ const summarySchema = new mongoose.Schema({
   duration: { type: String },
   participants: [{ name: String, role: String, avatar: String }],
   summary: { type: String },
+  conclusions: { type: String },
   actionItems: [{
     id: Number,
     task: String,
     assignee: String,
-    status: String
+    status: String,
+    taskId: String
   }],
   transcript: [{ type: String }],
   createdAt: { type: Date, default: Date.now }

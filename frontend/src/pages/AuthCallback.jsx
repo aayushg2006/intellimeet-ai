@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { Loader } from 'lucide-react'
@@ -12,42 +12,47 @@ export const AuthCallback = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const login = useAuthStore((state) => state.login)
-  const [error, setError] = useState(null)
+  const authResult = useMemo(() => {
+    const token = searchParams.get('token')
+    const userParam = searchParams.get('user')
+    const errorParam = searchParams.get('error')
+
+    if (errorParam) {
+      return { error: 'Google sign-in failed. Please try again.' }
+    }
+
+    if (!token || !userParam) {
+      return { error: 'Invalid authentication response.' }
+    }
+
+    try {
+      return {
+        token,
+        user: JSON.parse(decodeURIComponent(userParam)),
+      }
+    } catch {
+      return { error: 'Something went wrong during sign-in.' }
+    }
+  }, [searchParams])
 
   useEffect(() => {
-    try {
-      const token = searchParams.get('token')
-      const userParam = searchParams.get('user')
-      const errorParam = searchParams.get('error')
-
-      if (errorParam) {
-        setError('Google sign-in failed. Please try again.')
-        setTimeout(() => navigate('/login'), 3000)
-        return
-      }
-
-      if (!token || !userParam) {
-        setError('Invalid authentication response.')
-        setTimeout(() => navigate('/login'), 3000)
-        return
-      }
-
-      const userData = JSON.parse(decodeURIComponent(userParam))
-      login(userData, token)
-      navigate('/dashboard', { replace: true })
-    } catch (err) {
-      console.error('OAuth callback error:', err)
-      setError('Something went wrong during sign-in.')
-      setTimeout(() => navigate('/login'), 3000)
+    if (authResult.error) {
+      const timer = setTimeout(() => navigate('/login'), 3000)
+      return () => clearTimeout(timer)
     }
-  }, [searchParams, login, navigate])
 
-  if (error) {
+    if (authResult.token && authResult.user) {
+      login(authResult.user, authResult.token)
+      navigate('/dashboard', { replace: true })
+    }
+  }, [authResult, login, navigate])
+
+  if (authResult.error) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-2xl p-8 max-w-md text-center">
           <div className="text-red-500 text-lg font-semibold mb-2">Authentication Error</div>
-          <p className="text-gray-600">{error}</p>
+          <p className="text-gray-600">{authResult.error}</p>
           <p className="text-sm text-gray-400 mt-2">Redirecting to login...</p>
         </div>
       </div>

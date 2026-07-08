@@ -38,7 +38,7 @@ export const JoinOrganization = () => {
       // Redirect to login, but ideally with returnTo url (not fully implemented yet)
       navigate('/login');
     }
-  }, [authToken, token]);
+  }, [authToken, token, joinOrgMutation, navigate]);
 
   return (
     <div className="min-h-screen bg-[#FAF9F7] flex flex-col items-center justify-center p-6 text-[#1A1A1A]">

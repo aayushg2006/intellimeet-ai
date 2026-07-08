@@ -1,31 +1,25 @@
 import Meeting from '../models/Meeting.js';
-import redis from '../config/redis.js';
 import crypto from 'crypto';
+import { canUserAccessMeeting, canUserCreateMeeting } from '../utils/meetingAccess.js';
 
 export const getMeetings = async (req, res) => {
   try {
     const { organizationId } = req.query;
-    const cacheKey = `meetings:user:${req.user._id}:org:${organizationId || 'personal'}`;
-    const cachedMeetings = await redis.get(cacheKey);
-    if (cachedMeetings) {
-      return res.json(JSON.parse(cachedMeetings));
-    }
-
-    const query = {
-      $and: [
-        { $or: [{ host: req.user._id }, { participants: req.user._id }] }
-      ]
-    };
+    const query = {};
 
     if (organizationId && organizationId !== 'personal') {
-      query.$and.push({ organizationId: organizationId });
+      query.organizationId = organizationId;
     } else {
-      query.$and.push({ $or: [{ organizationId: null }, { organizationId: { $exists: false } }] });
+      query.$or = [{ host: req.user._id }, { participants: req.user._id }];
+      query.$and = [{ $or: [{ organizationId: null }, { organizationId: { $exists: false } }] }];
     }
 
-    const meetings = await Meeting.find(query).populate('host', 'name email');
-    
-    await redis.set(cacheKey, JSON.stringify(meetings), 'EX', 60);
+    const meetings = await Meeting.find(query)
+      .populate('host', 'name email')
+      .populate('allowedParticipants', 'name email avatar')
+      .populate('allowedTeams', 'name owner')
+      .sort({ scheduledAt: -1, createdAt: -1 });
+
     res.json(meetings);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -36,7 +30,9 @@ export const getMeetingById = async (req, res) => {
   try {
     const meeting = await Meeting.findById(req.params.id)
       .populate('host', 'name email')
-      .populate('participants', 'name email');
+      .populate('participants', 'name email')
+      .populate('allowedParticipants', 'name email avatar')
+      .populate('allowedTeams', 'name owner');
     if (meeting) {
       res.json(meeting);
     } else {
@@ -52,13 +48,14 @@ export const getMeetingByRoomId = async (req, res) => {
   try {
     const meeting = await Meeting.findOne({ roomId: req.params.roomId })
       .populate('host', '_id name email')
-      .populate('participants', '_id name email');
+      .populate('participants', '_id name email')
+      .populate('allowedParticipants', '_id name email avatar')
+      .populate('allowedTeams', '_id name owner');
       
     if (meeting) {
-      // Access Control — only enforce when user is authenticated AND allowedParticipants is set
-      if (req.user && meeting.allowedParticipants && meeting.allowedParticipants.length > 0) {
-        const isAllowed = meeting.allowedParticipants.some(p => p._id.toString() === req.user._id.toString()) || meeting.host._id.toString() === req.user._id.toString();
-        if (!isAllowed) {
+      if (req.user) {
+        const canAccess = await canUserAccessMeeting(meeting, req.user._id);
+        if (!canAccess) {
           return res.status(403).json({ message: 'You do not have permission to join this meeting.' });
         }
       }
@@ -73,16 +70,33 @@ export const getMeetingByRoomId = async (req, res) => {
 
 export const createMeeting = async (req, res) => {
   try {
-    const { title, description, scheduledAt, roomId, organizationId, meetingType, allowedParticipants, allowedTeams } = req.body;
+    const { title, description, scheduledAt, roomId, organizationId, meetingType, accessMode, allowedParticipants, allowedTeams, status } = req.body;
     
     // Auto-generate roomId if not provided
     const generatedRoomId = roomId || crypto.randomUUID();
+    const normalizedAccessMode = accessMode || (organizationId ? ((allowedParticipants?.length || 0) > 0 && (allowedTeams?.length || 0) > 0 ? 'mixed' : (allowedTeams?.length || 0) > 0 ? 'teams' : (allowedParticipants?.length || 0) > 0 ? 'people' : 'organization') : 'personal');
+
+    const canCreateMeeting = await canUserCreateMeeting({
+      userId: req.user._id,
+      organizationId,
+      accessMode: normalizedAccessMode,
+      allowedParticipants: allowedParticipants || [],
+      allowedTeams: allowedTeams || [],
+    });
+
+    if (!canCreateMeeting) {
+      return res.status(403).json({
+        message: 'You are not allowed to create this meeting scope.',
+      });
+    }
 
     const meeting = new Meeting({
       title,
       description,
       scheduledAt,
       meetingType: meetingType || 'other',
+      accessMode: normalizedAccessMode,
+      status: status || (scheduledAt ? 'scheduled' : 'ongoing'),
       roomId: generatedRoomId,
       host: req.user._id,
       participants: [req.user._id],
@@ -95,10 +109,6 @@ export const createMeeting = async (req, res) => {
     
     // Populate host before returning so the frontend gets { host: { _id, name } }
     await createdMeeting.populate('host', '_id name email');
-    
-    // Invalidate the meetings cache for this user/org
-    const cacheKey = `meetings:user:${req.user._id}:org:${organizationId || 'personal'}`;
-    await redis.del(cacheKey);
 
     res.status(201).json(createdMeeting);
   } catch (error) {
@@ -119,19 +129,10 @@ export const updateMeeting = async (req, res) => {
       if (req.body.title !== undefined) meeting.title = req.body.title;
       if (req.body.description !== undefined) meeting.description = req.body.description;
       if (req.body.status !== undefined) meeting.status = req.body.status;
+      if (req.body.accessMode !== undefined) meeting.accessMode = req.body.accessMode;
 
       const updatedMeeting = await meeting.save();
       
-      // Invalidate cache for all participants
-      const orgId = meeting.organizationId || 'personal';
-      const cacheKeys = meeting.participants.map(pId => `meetings:user:${pId}:org:${orgId}`);
-      if (!meeting.participants.includes(meeting.host)) {
-        cacheKeys.push(`meetings:user:${meeting.host}:org:${orgId}`);
-      }
-      if (cacheKeys.length > 0) {
-        await redis.del(...cacheKeys);
-      }
-
       res.json(updatedMeeting);
     } else {
       res.status(404).json({ message: 'Meeting not found' });

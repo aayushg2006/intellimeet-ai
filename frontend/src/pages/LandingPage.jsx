@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Video, Zap, Shield, Users, ArrowRight, Check, Star } from 'lucide-react'
+import { Video, Zap, Shield, ArrowRight } from 'lucide-react'
 
 export const LandingPage = () => {
   const navigate = useNavigate()

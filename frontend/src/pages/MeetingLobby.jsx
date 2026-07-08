@@ -25,7 +25,7 @@ export const MeetingLobby = () => {
   const videoRef = useRef(null)
   const previewStreamRef = useRef(null)
 
-  const { setMeetingId, setParticipantName: setStoreName } = useMeetingStore()
+  const { setMeetingId, setParticipantName: setStoreName, setJoinPreferences } = useMeetingStore()
 
   // Initialize preview media on mount
   useEffect(() => {
@@ -78,7 +78,7 @@ export const MeetingLobby = () => {
         previewStreamRef.current = null
       }
     }
-  }, [])
+  }, [meetingId, navigate])
 
   // Connect video stream to ref
   useEffect(() => {
@@ -120,6 +120,7 @@ export const MeetingLobby = () => {
       const newTrack = newStream.getTracks()[0]
 
       if (newTrack && previewStreamRef.current) {
+        newTrack.enabled = kind === 'audio' ? isAudioEnabled : isVideoEnabled
         previewStreamRef.current.addTrack(newTrack)
         // Re-attach to video element
         if (videoRef.current) {
@@ -150,6 +151,12 @@ export const MeetingLobby = () => {
     }
     setMeetingId(meetingId)
     setStoreName(participantName)
+    setJoinPreferences({
+      audioEnabled: isAudioEnabled,
+      videoEnabled: isVideoEnabled,
+      audioDeviceId: selectedAudio,
+      videoDeviceId: selectedVideo,
+    })
     navigate(`/meeting/${meetingId}/room`)
   }
 

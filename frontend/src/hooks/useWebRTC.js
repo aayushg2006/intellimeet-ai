@@ -20,9 +20,10 @@ export const useWebRTC = () => {
   const screenStreamRef = useRef(null)
   const makingOfferRef = useRef({}) // Track per-peer offer-in-progress
   const socketRefForScreen = useRef(null) // Socket ref for screen share renegotiation
+  const socketRefRef = useRef(null)
 
   // ─── INITIALIZE MEDIA ───
-  const initializeMedia = useCallback(async () => {
+  const initializeMedia = useCallback(async (options = {}) => {
     try {
       // If we already have a stream, don't re-acquire
       if (localStreamRef.current) {
@@ -30,20 +31,49 @@ export const useWebRTC = () => {
         return localStreamRef.current
       }
 
+      const {
+        audioEnabled = true,
+        videoEnabled = true,
+        audioDeviceId = '',
+        videoDeviceId = '',
+      } = options
+
+      const audioConstraints = audioEnabled
+        ? {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            ...(audioDeviceId ? { deviceId: { exact: audioDeviceId } } : {}),
+          }
+        : false
+
+      const videoConstraints = videoEnabled
+        ? {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            ...(videoDeviceId ? { deviceId: { exact: videoDeviceId } } : {}),
+          }
+        : false
+
+      if (!audioConstraints && !videoConstraints) {
+        const emptyStream = new MediaStream()
+        localStreamRef.current = emptyStream
+        setLocalStream(emptyStream)
+        setIsAudioEnabled(false)
+        setIsVideoEnabled(false)
+        setError(null)
+        return emptyStream
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
+        audio: audioConstraints,
+        video: videoConstraints,
       })
 
       localStreamRef.current = stream
       setLocalStream(stream)
+      setIsAudioEnabled(audioEnabled && stream.getAudioTracks().length > 0)
+      setIsVideoEnabled(videoEnabled && stream.getVideoTracks().length > 0)
       setError(null)
       return stream
     } catch (err) {
@@ -60,6 +90,7 @@ export const useWebRTC = () => {
         const fallback = await navigator.mediaDevices.getUserMedia({ audio: true })
         localStreamRef.current = fallback
         setLocalStream(fallback)
+        setIsAudioEnabled(true)
         setIsVideoEnabled(false)
         return fallback
       } catch {
@@ -81,6 +112,35 @@ export const useWebRTC = () => {
   const toggleAudio = useCallback(() => {
     if (!localStreamRef.current) return
     const audioTracks = localStreamRef.current.getAudioTracks()
+
+    if (audioTracks.length === 0) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => {
+          const track = stream.getAudioTracks()[0]
+          if (!track || !localStreamRef.current) return
+          localStreamRef.current.addTrack(track)
+          Object.entries(peerConnectionsRef.current).forEach(([peerId, pc]) => {
+            if (pc.signalingState === 'closed') return
+            pc.addTrack(track, localStreamRef.current)
+            pc.createOffer()
+              .then((offer) => pc.setLocalDescription(offer))
+              .then(() => {
+                if (socketRefRef.current?.current) {
+                  socketRefRef.current.current.emit('webrtc-offer', pc.localDescription, peerId)
+                }
+              })
+              .catch((err) => console.error('[WebRTC] Audio enable renegotiation error:', err))
+          })
+          setIsAudioEnabled(true)
+          setLocalStream(null)
+          setTimeout(() => setLocalStream(localStreamRef.current), 0)
+        })
+        .catch(() => {
+          setError('Failed to enable audio')
+        })
+      return
+    }
+
     audioTracks.forEach((track) => {
       track.enabled = !track.enabled
     })
@@ -91,6 +151,40 @@ export const useWebRTC = () => {
   const toggleVideo = useCallback(() => {
     if (!localStreamRef.current) return
     const videoTracks = localStreamRef.current.getVideoTracks()
+
+    if (videoTracks.length === 0) {
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        }
+      })
+        .then((stream) => {
+          const track = stream.getVideoTracks()[0]
+          if (!track || !localStreamRef.current) return
+          localStreamRef.current.addTrack(track)
+          Object.entries(peerConnectionsRef.current).forEach(([peerId, pc]) => {
+            if (pc.signalingState === 'closed') return
+            pc.addTrack(track, localStreamRef.current)
+            pc.createOffer()
+              .then((offer) => pc.setLocalDescription(offer))
+              .then(() => {
+                if (socketRefRef.current?.current) {
+                  socketRefRef.current.current.emit('webrtc-offer', pc.localDescription, peerId)
+                }
+              })
+              .catch((err) => console.error('[WebRTC] Video enable renegotiation error:', err))
+          })
+          setIsVideoEnabled(true)
+          setLocalStream(null)
+          setTimeout(() => setLocalStream(localStreamRef.current), 0)
+        })
+        .catch(() => {
+          setError('Failed to enable video')
+        })
+      return
+    }
+
     videoTracks.forEach((track) => {
       track.enabled = !track.enabled
     })
@@ -99,6 +193,39 @@ export const useWebRTC = () => {
 
   // ─── SCREEN SHARE ───
   const screenAddedPeersRef = useRef(new Set()) // Track which peers used addTrack (need renegotiation on stop)
+
+  const stopScreenShare = useCallback((socketRef) => {
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach((track) => track.stop())
+      screenStreamRef.current = null
+    }
+    setIsScreenSharing(false)
+
+    const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null
+    Object.entries(peerConnectionsRef.current).forEach(([peerId, pc]) => {
+      if (pc.signalingState === 'closed') return
+
+      const videoSender = pc.getSenders().find(
+        (s) => s.track === null || (s.track && s.track.kind === 'video')
+      )
+      if (videoSender) {
+        videoSender.replaceTrack(cameraTrack)
+      }
+
+      // Only renegotiate for peers where we used addTrack
+      if (screenAddedPeersRef.current.has(peerId)) {
+        pc.createOffer()
+          .then((offer) => pc.setLocalDescription(offer))
+          .then(() => {
+            if (socketRef?.current) {
+              socketRef.current.emit('webrtc-offer', pc.localDescription, peerId)
+            }
+          })
+          .catch((err) => console.error('[WebRTC] Screen share stop renegotiation error:', err))
+      }
+    })
+    screenAddedPeersRef.current.clear()
+  }, [])
 
   const startScreenShare = useCallback(async (socketRef) => {
     try {
@@ -151,40 +278,7 @@ export const useWebRTC = () => {
       }
       return null
     }
-  }, [])
-
-  const stopScreenShare = useCallback((socketRef) => {
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getTracks().forEach((track) => track.stop())
-      screenStreamRef.current = null
-    }
-    setIsScreenSharing(false)
-
-    const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null
-    Object.entries(peerConnectionsRef.current).forEach(([peerId, pc]) => {
-      if (pc.signalingState === 'closed') return
-
-      const videoSender = pc.getSenders().find(
-        (s) => s.track === null || (s.track && s.track.kind === 'video')
-      )
-      if (videoSender) {
-        videoSender.replaceTrack(cameraTrack)
-      }
-
-      // Only renegotiate for peers where we used addTrack
-      if (screenAddedPeersRef.current.has(peerId)) {
-        pc.createOffer()
-          .then((offer) => pc.setLocalDescription(offer))
-          .then(() => {
-            if (socketRef?.current) {
-              socketRef.current.emit('webrtc-offer', pc.localDescription, peerId)
-            }
-          })
-          .catch((err) => console.error('[WebRTC] Screen share stop renegotiation error:', err))
-      }
-    })
-    screenAddedPeersRef.current.clear()
-  }, [])
+  }, [stopScreenShare])
 
   // ─── GET DEVICES ───
   const getDevices = useCallback(async () => {
@@ -194,7 +288,7 @@ export const useWebRTC = () => {
         audioDevices: devices.filter((d) => d.kind === 'audioinput'),
         videoDevices: devices.filter((d) => d.kind === 'videoinput'),
       }
-    } catch (err) {
+    } catch {
       setError('Failed to enumerate devices')
       return { audioDevices: [], videoDevices: [] }
     }
@@ -235,7 +329,7 @@ export const useWebRTC = () => {
       setTimeout(() => setLocalStream(localStreamRef.current), 0)
 
       return newStream
-    } catch (err) {
+    } catch {
       setError('Failed to switch device')
       return null
     }
@@ -299,6 +393,7 @@ export const useWebRTC = () => {
   // ─── HANDLE USER CONNECTED (we are the OFFERER) ───
   const handleUserConnected = useCallback(async (socketId, socketRef) => {
     console.log(`[WebRTC] User connected: ${socketId}, creating offer...`)
+    socketRefRef.current = socketRef
     const pc = createPeerConnection(socketId, socketRef)
 
     try {
@@ -316,6 +411,7 @@ export const useWebRTC = () => {
   // ─── HANDLE OFFER (we are the ANSWERER, or renegotiation) ───
   const handleOffer = useCallback(async (offer, senderSocketId, socketRef) => {
     // Check if we already have a connection (renegotiation case, e.g. screen share)
+    socketRefRef.current = socketRef
     let pc = peerConnectionsRef.current[senderSocketId]
     if (pc && pc.signalingState !== 'closed') {
       console.log(`[WebRTC] Renegotiation offer from ${senderSocketId}`)

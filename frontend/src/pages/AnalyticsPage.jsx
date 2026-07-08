@@ -49,8 +49,6 @@ export const AnalyticsPage = () => {
     completedTasks: rawData.completedTasks || 0
   } : null
 
-  const totalMeetings = analyticsData?.totalMeetings || 1
-
   return (
     <div className="min-h-screen bg-[#FAF9F7]">
       <div className="border-b border-[#E8E4DD] bg-white px-6 py-4 flex items-center justify-between">

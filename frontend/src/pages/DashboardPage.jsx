@@ -1,22 +1,25 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut, User, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader, Settings, Search } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { LogOut, Video, Plus, ArrowUpRight, LayoutGrid, BarChart2, Loader, Settings, Search } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
 import { ScheduleMeetingModal } from '../components/ScheduleMeetingModal'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useSignedUrl } from '../hooks/useSignedUrl'
+import { getMeetingAccessDetails, getMeetingAccessLabel, getMeetingTypeLabel } from '../utils/meetingDisplay'
 
 export const DashboardPage = () => {
   const navigate = useNavigate()
   const { user, token, logout } = useAuthStore()
   const { activeWorkspace } = useWorkspaceStore()
+  const queryClient = useQueryClient()
   const [meetingId, setMeetingId] = useState('')
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [showInstantModal, setShowInstantModal] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => { document.title = 'Dashboard — IntellMeet' }, [])
@@ -38,25 +41,6 @@ export const DashboardPage = () => {
   const handleLogout = () => {
     logout()
     navigate('/login')
-  }
-
-  const handleCreateMeeting = async () => {
-    const newMeetingId = Math.random().toString(36).substring(2, 9).toUpperCase()
-    
-    try {
-      await axios.post('/api/meetings', {
-        title: 'Instant Meeting',
-        roomId: newMeetingId,
-        scheduledAt: new Date(),
-        organizationId: activeWorkspace === 'personal' ? null : activeWorkspace
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      navigate(`/meeting/${newMeetingId}`)
-    } catch (error) {
-      console.error('Error creating meeting:', error)
-      toast.error('Failed to create meeting')
-    }
   }
 
   const handleJoinMeeting = () => {
@@ -156,7 +140,7 @@ export const DashboardPage = () => {
 
         <div className="grid grid-cols-3 gap-4 mb-8">
           <button
-            onClick={handleCreateMeeting}
+            onClick={() => setShowInstantModal(true)}
             className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
           >
             <div className="w-10 h-10 bg-[#7C3AED]/8 rounded-xl flex items-center justify-center mb-4">
@@ -268,18 +252,20 @@ export const DashboardPage = () => {
             m.roomId?.toLowerCase().includes(searchQuery.toLowerCase())
           )
           const ONE_DAY = 24 * 60 * 60 * 1000;
-          const now = Date.now();
-          
-          const upcomingMeetings = filteredMeetings.filter(m => {
-            if (m.status === 'completed') return false;
-            const meetingDate = new Date(m.scheduledAt || m.createdAt).getTime();
-            return (now - meetingDate) < ONE_DAY; // Not older than 24h
+          const now = new Date().getTime();
+
+          const upcomingMeetings = filteredMeetings.filter((m) => {
+            if (m.status === 'completed') return false
+            if (m.status === 'ongoing') return true
+            const meetingDate = new Date(m.scheduledAt || m.createdAt).getTime()
+            return meetingDate >= now - ONE_DAY
           })
-          
-          const pastMeetings = filteredMeetings.filter(m => {
-            if (m.status === 'completed') return true;
-            const meetingDate = new Date(m.scheduledAt || m.createdAt).getTime();
-            return (now - meetingDate) >= ONE_DAY; // Treat abandoned meetings as past
+
+          const pastMeetings = filteredMeetings.filter((m) => {
+            if (m.status === 'completed') return true
+            if (m.status === 'ongoing') return false
+            const meetingDate = new Date(m.scheduledAt || m.createdAt).getTime()
+            return meetingDate < now - ONE_DAY
           })
 
           return (
@@ -310,7 +296,24 @@ export const DashboardPage = () => {
                             <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
                             <div className="text-xs text-[#6B6560] mt-1">
                               {new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}
-                              {meeting.meetingType && meeting.meetingType !== 'other' && ` • ${meeting.meetingType}`}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <span className="bg-[#F5F2EE] text-[#6B6560] text-[11px] px-2 py-1 rounded-full">
+                                {getMeetingTypeLabel(meeting.meetingType)}
+                              </span>
+                              <span className="bg-[#EEF2FF] text-[#4338CA] text-[11px] px-2 py-1 rounded-full">
+                                {getMeetingAccessLabel(meeting)}
+                              </span>
+                              {getMeetingAccessDetails(meeting).teams.map((teamName) => (
+                                <span key={`${meeting._id}-team-${teamName}`} className="bg-[#ECFDF5] text-[#059669] text-[11px] px-2 py-1 rounded-full">
+                                  Team: {teamName}
+                                </span>
+                              ))}
+                              {getMeetingAccessDetails(meeting).people.length > 0 && (
+                                <span className="bg-[#FEF3C7] text-[#D97706] text-[11px] px-2 py-1 rounded-full">
+                                  {getMeetingAccessDetails(meeting).people.length} people
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -352,6 +355,24 @@ export const DashboardPage = () => {
                             <div className="text-sm font-medium text-[#1A1A1A]">{meeting.title}</div>
                             <div className="text-xs text-[#6B6560] mt-1">
                               {new Date(meeting.scheduledAt || meeting.createdAt).toLocaleString()}
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <span className="bg-[#F5F2EE] text-[#6B6560] text-[11px] px-2 py-1 rounded-full">
+                                {getMeetingTypeLabel(meeting.meetingType)}
+                              </span>
+                              <span className="bg-[#EEF2FF] text-[#4338CA] text-[11px] px-2 py-1 rounded-full">
+                                {getMeetingAccessLabel(meeting)}
+                              </span>
+                              {getMeetingAccessDetails(meeting).teams.map((teamName) => (
+                                <span key={`${meeting._id}-past-team-${teamName}`} className="bg-[#ECFDF5] text-[#059669] text-[11px] px-2 py-1 rounded-full">
+                                  Team: {teamName}
+                                </span>
+                              ))}
+                              {getMeetingAccessDetails(meeting).people.length > 0 && (
+                                <span className="bg-[#FEF3C7] text-[#D97706] text-[11px] px-2 py-1 rounded-full">
+                                  {getMeetingAccessDetails(meeting).people.length} people
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -402,11 +423,24 @@ export const DashboardPage = () => {
         )}
 
         <ScheduleMeetingModal 
+          key={`scheduled-${activeWorkspace}-${showScheduleModal ? 'open' : 'closed'}`}
           isOpen={showScheduleModal} 
           onClose={() => setShowScheduleModal(false)}
-          onSchedule={(newMeetingId) => {
-            setShowScheduleModal(false);
-            navigate(`/meeting/${newMeetingId}`);
+          mode="scheduled"
+          onCreated={() => {
+            queryClient.invalidateQueries({ queryKey: ['meetings', activeWorkspace] })
+            toast.success('Meeting scheduled')
+          }}
+        />
+
+        <ScheduleMeetingModal
+          key={`instant-${activeWorkspace}-${showInstantModal ? 'open' : 'closed'}`}
+          isOpen={showInstantModal}
+          onClose={() => setShowInstantModal(false)}
+          mode="instant"
+          onCreated={(meeting) => {
+            queryClient.invalidateQueries({ queryKey: ['meetings', activeWorkspace] })
+            navigate(`/meeting/${meeting.roomId}`)
           }}
         />
       </div>

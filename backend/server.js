@@ -9,6 +9,7 @@ import passport from 'passport';
 import { Server } from 'socket.io';
 import socketHandler from './socket/index.js';
 import configurePassport from './config/passport.js';
+import './config/redis.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 // Triggering server restart to load latest .env variables

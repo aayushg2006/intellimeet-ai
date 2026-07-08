@@ -11,24 +11,19 @@ export const useSignedUrl = (s3Key) => {
   const [url, setUrl] = useState(null)
   const [loading, setLoading] = useState(false)
   const { token } = useAuthStore()
+  const shouldFetch = !!s3Key && !!token && !s3Key.startsWith('http://') && !s3Key.startsWith('https://')
+  const directUrl = s3Key && (s3Key.startsWith('http://') || s3Key.startsWith('https://')) ? s3Key : null
 
   useEffect(() => {
-    if (!s3Key || !token) {
-      setUrl(null)
-      return
-    }
-
-    // If the key is already a full URL (e.g., Google profile pic), use it directly
-    if (s3Key.startsWith('http://') || s3Key.startsWith('https://')) {
-      setUrl(s3Key)
+    if (!shouldFetch) {
       return
     }
 
     let cancelled = false
-    setLoading(true)
 
     const fetchUrl = async () => {
       try {
+        setLoading(true)
         const res = await axios.get('/api/uploads/signed-url', {
           params: { key: s3Key },
           headers: { Authorization: `Bearer ${token}` },
@@ -47,7 +42,7 @@ export const useSignedUrl = (s3Key) => {
     fetchUrl()
 
     return () => { cancelled = true }
-  }, [s3Key, token])
+  }, [shouldFetch, s3Key, token])
 
-  return { url, loading }
+  return { url: directUrl ?? (shouldFetch ? url : null), loading: shouldFetch && loading }
 }

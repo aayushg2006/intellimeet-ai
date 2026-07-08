@@ -5,6 +5,7 @@ import Task from '../models/Task.js';
 import mongoose from 'mongoose';
 import aiService from '../services/aiService.js';
 import jwt from 'jsonwebtoken';
+import { canUserAccessMeeting } from '../utils/meetingAccess.js';
 
 // In-memory waiting room: roomId -> [{ socketId, userObj }]
 const waitingRooms = {};
@@ -76,6 +77,12 @@ const socketHandler = (io) => {
         const meeting = await Meeting.findOne({ roomId });
         if (!meeting) {
           socket.emit('room-error', 'Meeting not found');
+          return;
+        }
+
+        const canAccess = await canUserAccessMeeting(meeting, userObj.id);
+        if (!canAccess) {
+          socket.emit('room-error', 'You do not have permission to join this meeting.');
           return;
         }
 
@@ -363,12 +370,12 @@ const socketHandler = (io) => {
             if (!wasAlreadyCompleted) {
               // --- AI Summary Generation (fire-and-forget) ---
               // Run in background so the socket handler completes immediately
-              const meetingId = meeting._id;
-              const meetingOrgId = meeting.organizationId;
-              const meetingTitle = meeting.title;
-              const meetingDate = meeting.createdAt.toISOString().split('T')[0];
+                  const meetingId = meeting._id;
+                  const meetingOrgId = meeting.organizationId;
+                  const meetingTitle = meeting.title;
+                  const meetingDate = meeting.createdAt.toISOString().split('T')[0];
 
-              (async () => {
+                  (async () => {
                 try {
                   // Read transcript from DB (survives server restarts)
                   let summaryDoc = await Summary.findOne({ meetingId });
@@ -391,47 +398,61 @@ const socketHandler = (io) => {
                     }
 
                     // Fetch chat messages
-                    const messages = await Message.find({ roomId });
+                    const messages = await Message.find({ roomId }).populate('sender', 'name');
                     const chatText = messages.map(m => `${m.sender?.name || 'User'}: ${m.text}`).join('\n');
                     const notesText = meeting.notes || '';
 
                     // Call Ollama for summary and action items
-                    const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
+                    const { summary, conclusions, actionItems } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
                     
-                    await Summary.updateOne(
-                      { _id: summaryDoc._id },
-                      {
-                        $set: {
-                          summary: summary,
-                          actionItems: actionItems.map((item, index) => ({
-                            id: index + 1,
-                            task: item,
-                            assignee: 'Unassigned',
-                            status: 'pending'
-                          }))
-                        }
-                      }
-                    );
-                    
+                    const enrichedActionItems = [];
+
                     // Create tasks in Kanban board
                     if (actionItems && actionItems.length > 0) {
-                      for (const item of actionItems) {
+                      for (let index = 0; index < actionItems.length; index += 1) {
+                        const item = actionItems[index];
                         try {
-                          await Task.create({
+                          const createdTask = await Task.create({
                             title: item.substring(0, 50) + (item.length > 50 ? '...' : ''),
                             description: item,
                             status: 'Todo',
                             priority: 'medium',
                             meetingId: meetingId,
+                            meetingTitle: meetingTitle,
                             organizationId: meetingOrgId,
                             teamId: meeting.teamId,
                             assignee: null
+                          });
+                          enrichedActionItems.push({
+                            id: index + 1,
+                            task: item,
+                            assignee: 'Unassigned',
+                            status: 'pending',
+                            taskId: createdTask._id.toString(),
                           });
                         } catch (e) {
                           console.error('[AI] Failed to create task for action item:', e);
                         }
                       }
                     }
+
+                    await Summary.updateOne(
+                      { _id: summaryDoc._id },
+                      {
+                        $set: {
+                          summary: summary,
+                          conclusions: conclusions || '',
+                          actionItems: enrichedActionItems.length > 0
+                            ? enrichedActionItems
+                            : actionItems.map((item, index) => ({
+                                id: index + 1,
+                                task: item,
+                                assignee: 'Unassigned',
+                                status: 'pending'
+                              }))
+                        }
+                      }
+                    );
 
                     console.log(`[AI] Summary and tasks saved for meeting ${roomId}.`);
                   }

@@ -8,7 +8,7 @@ class AIService {
   /**
    * Generates a meeting summary using Google Gemini API
    * @param {String} transcript - The full text transcript of the meeting
-   * @returns {Object} { summary, actionItems }
+   * @returns {Object} { summary, conclusions, actionItems }
    */
   async generateSummary(transcript, chat = '', notes = '') {
     if (!transcript && !chat && !notes) {
@@ -19,18 +19,22 @@ class AIService {
     }
 
     const prompt = `
-You are an expert AI meeting assistant. Below is the transcript, chat history, and shared notes of a meeting. 
-Please analyze all sources and provide a clean, precisely explained summary so that anyone can understand it, and a list of action items.
+You are an expert AI meeting assistant.
+Analyze the meeting transcript, chat history, and shared notes together.
+Return a concise but complete meeting summary, the key conclusions/decisions, and actionable follow-ups.
 
-Format your response exactly like this, using exactly these headers:
+Use exactly these headers in your response:
 TRANSCRIPT SUMMARY:
-(1-2 paragraphs summarizing the spoken transcript)
+(1-2 paragraphs covering the spoken discussion)
 
 CHAT SUMMARY:
-(1-2 paragraphs summarizing the chat messages)
+(1 paragraph covering important chat context)
 
 NOTES SUMMARY:
-(1-2 paragraphs summarizing the shared notes)
+(1 paragraph covering important notes)
+
+CONCLUSIONS / DECISIONS:
+(bullet points or short paragraphs with the final conclusions)
 
 ACTION ITEMS:
 - [Assignee Name if any] Action item description
@@ -74,6 +78,7 @@ ${notes || '(No shared notes)'}
       let transcriptSummary = '';
       let chatSummary = '';
       let notesSummary = '';
+      let conclusions = '';
       let actionItems = [];
 
       const tMatch = resultText.match(/TRANSCRIPT SUMMARY:\s*([\s\S]*?)(?=CHAT SUMMARY:|$)/i);
@@ -85,6 +90,9 @@ ${notes || '(No shared notes)'}
       const nMatch = resultText.match(/NOTES SUMMARY:\s*([\s\S]*?)(?=ACTION ITEMS:|$)/i);
       if (nMatch && nMatch[1]) notesSummary = nMatch[1].trim();
 
+      const conclusionsMatch = resultText.match(/CONCLUSIONS \/ DECISIONS:\s*([\s\S]*?)(?=ACTION ITEMS:|$)/i);
+      if (conclusionsMatch && conclusionsMatch[1]) conclusions = conclusionsMatch[1].trim();
+
       const actionItemsMatch = resultText.match(/ACTION ITEMS:\s*([\s\S]*)/i);
       if (actionItemsMatch && actionItemsMatch[1]) {
         const items = actionItemsMatch[1].split('\n').map(line => line.trim()).filter(line => line.startsWith('-'));
@@ -95,17 +103,19 @@ ${notes || '(No shared notes)'}
       if (transcriptSummary) summary += `### Transcript Summary\n${transcriptSummary}\n\n`;
       if (chatSummary) summary += `### Chat Summary\n${chatSummary}\n\n`;
       if (notesSummary) summary += `### Notes Summary\n${notesSummary}\n\n`;
+      if (conclusions) summary += `### Conclusions / Decisions\n${conclusions}\n\n`;
 
       // Fallback if parsing fails
       if (!summary.trim() && !actionItems.length) {
         summary = resultText;
       }
 
-      return { summary: summary.trim(), actionItems };
+      return { summary: summary.trim(), conclusions, actionItems };
     } catch (error) {
       console.error('Gemini API generation error:', error.message);
       return {
         summary: "Failed to generate summary. Please check your Gemini API Key configuration.",
+        conclusions: '',
         actionItems: []
       };
     }

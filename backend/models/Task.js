@@ -6,6 +6,7 @@ const taskSchema = new mongoose.Schema({
   status: { type: String, enum: ['Todo', 'In Progress', 'In Review', 'Done'], default: 'Todo' },
   assignee: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   meetingId: { type: mongoose.Schema.Types.ObjectId, ref: 'Meeting' },
+  meetingTitle: { type: String, default: '' },
   organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }, // null = personal
   teamId: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
   priority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium' },

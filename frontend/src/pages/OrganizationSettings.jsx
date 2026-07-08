@@ -4,15 +4,13 @@ import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Building, Link2, Copy, CheckCircle2, Trash2, Shield, User as UserIcon, Camera, Loader, Upload } from 'lucide-react';
+import { ArrowLeft, Plus, Building, Link2, Copy, CheckCircle2, Trash2, User as UserIcon, Camera, Loader, Users, Check, PencilLine } from 'lucide-react';
 import { useSignedUrl } from '../hooks/useSignedUrl';
 
 const OrganizationLogo = ({ org, isAdmin }) => {
   const { token } = useAuthStore()
   const queryClient = useQueryClient()
   const [uploading, setUploading] = useState(false)
-  const fileInputRef = useState(null)[1] // not using ref, just triggering directly
-  
   const { url: resolvedLogoUrl } = useSignedUrl(org.logo)
   const initials = org.name?.charAt(0).toUpperCase() || 'O'
 
@@ -192,9 +190,407 @@ const OrganizationMembersList = ({ orgId, isAdmin }) => {
   );
 };
 
+const OrganizationTeamsSection = ({ orgId, isAdmin }) => {
+  const { token, user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [showEditTeam, setShowEditTeam] = useState(false);
+  const [teamName, setTeamName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [selectedOwner, setSelectedOwner] = useState('');
+  const [editingTeam, setEditingTeam] = useState(null);
+
+  const { data: teams = [], isLoading: teamsLoading } = useQuery({
+    queryKey: ['teams', orgId],
+    queryFn: async () => {
+      const res = await axios.get('/api/teams', {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { organizationId: orgId }
+      });
+      return res.data;
+    },
+    enabled: !!token && !!orgId,
+  });
+
+  const { data: members = [], isLoading: membersLoading } = useQuery({
+    queryKey: ['orgMembers', orgId, 'team-picker'],
+    queryFn: async () => {
+      const res = await axios.get(`/api/organizations/${orgId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.data;
+    },
+    enabled: !!token && !!orgId && (showCreateTeam || showEditTeam),
+  });
+
+  const createTeamMutation = useMutation({
+    mutationFn: async () => {
+      const res = await axios.post('/api/teams', {
+        name: teamName,
+        organizationId: orgId,
+        members: selectedMembers,
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['teams', orgId]);
+      setTeamName('');
+      setSelectedMembers([]);
+      setShowCreateTeam(false);
+    },
+    onError: (err) => alert(err.response?.data?.message || 'Failed to create team')
+  });
+
+  const deleteTeamMutation = useMutation({
+    mutationFn: async (teamId) => {
+      const res = await axios.delete(`/api/teams/${teamId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.data;
+    },
+    onSuccess: () => queryClient.invalidateQueries(['teams', orgId]),
+    onError: (err) => alert(err.response?.data?.message || 'Failed to delete team')
+  });
+
+  const toggleMember = (memberId) => {
+    setSelectedMembers((prev) => (
+      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
+    ));
+  };
+
+  const openEditModal = (team) => {
+    setShowCreateTeam(false);
+    setEditingTeam(team);
+    setTeamName(team.name || '');
+    setSelectedOwner(team.owner?._id || team.owner || '');
+    const memberIds = (team.members || []).map((member) => member?._id || member).filter(Boolean);
+    setSelectedMembers(memberIds);
+    setShowEditTeam(true);
+  };
+
+  const closeTeamModal = () => {
+    setShowCreateTeam(false);
+    setShowEditTeam(false);
+    setEditingTeam(null);
+    setTeamName('');
+    setSelectedOwner('');
+    setSelectedMembers([]);
+  };
+
+  const saveTeamMutation = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        name: teamName,
+        members: selectedMembers,
+      };
+
+      if (selectedOwner) {
+        payload.owner = selectedOwner;
+      }
+
+      const res = await axios.put(`/api/teams/${editingTeam._id}`, payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['teams', orgId]);
+      closeTeamModal();
+    },
+    onError: (err) => alert(err.response?.data?.message || 'Failed to update team')
+  });
+
+  if (!isAdmin) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-[#E8E4DD]">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <p className="text-xs text-[#6B6560] uppercase tracking-wider font-semibold flex items-center gap-2">
+          <Users size={14} /> Teams ({teams.length})
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setEditingTeam(null);
+            setTeamName('');
+            setSelectedOwner('');
+            setSelectedMembers([]);
+            setShowCreateTeam(true);
+          }}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#7C3AED] text-white text-xs font-medium hover:bg-[#6D28D9] transition"
+        >
+          <Plus size={14} />
+          Create Team
+        </button>
+      </div>
+
+      {teamsLoading ? (
+        <div className="text-xs text-[#6B6560] py-2">Loading teams...</div>
+      ) : teams.length === 0 ? (
+        <div className="text-sm text-[#6B6560] bg-[#FAF9F7] border border-dashed border-[#E8E4DD] rounded-xl p-4">
+          No teams yet. Create your first team to group members for meetings and workspace access.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {teams.map((team) => {
+            const isOwner = (team.owner?._id || team.owner) === (user?._id || user?.id);
+            return (
+              <div key={team._id} className="flex items-start justify-between gap-3 p-3 rounded-xl border border-[#E8E4DD] bg-[#FAF9F7]">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-[#1A1A1A]">{team.name}</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">
+                      {team.members?.length || 0} members
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#6B6560] mt-1">
+                    Owner: {team.owner?.name || 'Unknown'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  {(isOwner || isAdmin) && (
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(team)}
+                      className="p-2 rounded-lg text-[#6B6560] hover:text-[#7C3AED] hover:bg-[#7C3AED]/5 transition"
+                      title="Edit Team"
+                    >
+                      <PencilLine size={14} />
+                    </button>
+                  )}
+                  {(isOwner || isAdmin) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Delete team "${team.name}"?`)) {
+                          deleteTeamMutation.mutate(team._id);
+                        }
+                      }}
+                      className="p-2 rounded-lg text-[#6B6560] hover:text-red-500 hover:bg-red-50 transition"
+                      title="Delete Team"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showCreateTeam && (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-[#E8E4DD] shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[#1A1A1A]">Create Team</h3>
+                <p className="text-sm text-[#6B6560] mt-1">Teams help you scope meetings and group work for the right people.</p>
+              </div>
+              <button onClick={closeTeamModal} className="text-[#6B6560] hover:text-[#1A1A1A]">
+                <CheckCircle2 size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Team Name</label>
+                <input
+                  type="text"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-4 py-2.5 text-sm focus:border-[#7C3AED] focus:outline-none"
+                  placeholder="e.g. Product Team"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#1A1A1A] mb-2">Select Members</label>
+                {membersLoading ? (
+                  <div className="text-sm text-[#6B6560]">Loading members...</div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2 max-h-72 overflow-y-auto pr-1">
+                    {members.map((member) => {
+                      const memberId = member.userId?._id;
+                      const checked = selectedMembers.includes(memberId);
+                      return (
+                        <button
+                          type="button"
+                          key={member._id}
+                          onClick={() => toggleMember(memberId)}
+                          className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                            checked ? 'border-[#7C3AED] bg-[#7C3AED]/5' : 'border-[#E8E4DD] bg-[#FAF9F7] hover:border-[#7C3AED]/30'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-[#7C3AED]/10 text-[#7C3AED] text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                              {member.userId?.name?.charAt(0).toUpperCase() || 'U'}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-[#1A1A1A] truncate">{member.userId?.name}</p>
+                              <p className="text-xs text-[#6B6560] truncate">{member.userId?.email}</p>
+                            </div>
+                          </div>
+                          <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${checked ? 'border-[#7C3AED] bg-[#7C3AED]' : 'border-[#C4BDB5]'}`}>
+                            {checked && <Check size={12} className="text-white" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeTeamModal}
+                  className="px-4 py-2 rounded-xl border border-[#E8E4DD] text-[#6B6560] hover:bg-[#F5F2EE] transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!teamName.trim()) return alert('Please enter a team name')
+                    createTeamMutation.mutate()
+                  }}
+                  disabled={createTeamMutation.isLoading}
+                  className="px-4 py-2 rounded-xl bg-[#7C3AED] text-white hover:bg-[#6D28D9] transition disabled:opacity-60"
+                >
+                  {createTeamMutation.isLoading ? 'Creating...' : 'Create Team'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditTeam && editingTeam && (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-[#E8E4DD] shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex items-start justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[#1A1A1A]">Edit Team</h3>
+                <p className="text-sm text-[#6B6560] mt-1">Update the team name, owner, and members.</p>
+              </div>
+              <button onClick={closeTeamModal} className="text-[#6B6560] hover:text-[#1A1A1A]">
+                <CheckCircle2 size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Team Name</label>
+                <input
+                  type="text"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-4 py-2.5 text-sm focus:border-[#7C3AED] focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Owner</label>
+                <select
+                  value={selectedOwner}
+                  onChange={(e) => {
+                    const nextOwner = e.target.value;
+                    setSelectedOwner(nextOwner);
+                    setSelectedMembers((prev) => (
+                      prev.includes(nextOwner) ? prev : [...prev, nextOwner]
+                    ));
+                  }}
+                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-4 py-2.5 text-sm focus:border-[#7C3AED] focus:outline-none"
+                >
+                  {members.map((member) => (
+                    <option key={member.userId?._id} value={member.userId?._id}>
+                      {member.userId?.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-[#1A1A1A] mb-2">Team Members</label>
+                {membersLoading ? (
+                  <div className="text-sm text-[#6B6560]">Loading members...</div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2 max-h-72 overflow-y-auto pr-1">
+                    {members.map((member) => {
+                      const memberId = member.userId?._id;
+                      const checked = selectedMembers.includes(memberId);
+                      const isOwner = selectedOwner === memberId;
+                      return (
+                        <button
+                          type="button"
+                          key={member._id}
+                          onClick={() => {
+                            if (isOwner) return;
+                            toggleMember(memberId);
+                          }}
+                          className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                            checked ? 'border-[#7C3AED] bg-[#7C3AED]/5' : 'border-[#E8E4DD] bg-[#FAF9F7] hover:border-[#7C3AED]/30'
+                          } ${isOwner ? 'opacity-80' : ''}`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-[#7C3AED]/10 text-[#7C3AED] text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                              {member.userId?.name?.charAt(0).toUpperCase() || 'U'}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-[#1A1A1A] truncate">
+                                {member.userId?.name}
+                                {isOwner && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-[#EEF2FF] text-[#4338CA]">Owner</span>}
+                              </p>
+                              <p className="text-xs text-[#6B6560] truncate">{member.userId?.email}</p>
+                            </div>
+                          </div>
+                          <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${checked ? 'border-[#7C3AED] bg-[#7C3AED]' : 'border-[#C4BDB5]'}`}>
+                            {checked && <Check size={12} className="text-white" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeTeamModal}
+                  className="px-4 py-2 rounded-xl border border-[#E8E4DD] text-[#6B6560] hover:bg-[#F5F2EE] transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!teamName.trim()) return alert('Please enter a team name')
+                    if (!selectedOwner) return alert('Please select an owner')
+                    saveTeamMutation.mutate()
+                  }}
+                  disabled={saveTeamMutation.isLoading}
+                  className="px-4 py-2 rounded-xl bg-[#7C3AED] text-white hover:bg-[#6D28D9] transition disabled:opacity-60"
+                >
+                  {saveTeamMutation.isLoading ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const OrganizationSettings = () => {
   const { token } = useAuthStore();
-  const { activeWorkspace, setActiveWorkspace, organizations, setOrganizations } = useWorkspaceStore();
+  const { activeWorkspace, setActiveWorkspace, setOrganizations } = useWorkspaceStore();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -272,9 +668,6 @@ export const OrganizationSettings = () => {
     setCopied(tokenValue);
     setTimeout(() => setCopied(false), 2000);
   };
-
-  const activeOrgData = orgsData.find(org => org._id === activeWorkspace);
-  const isAdmin = activeOrgData?.userRole === 'OrgAdmin';
 
   return (
     <div className="min-h-screen bg-[#FAF9F7] text-[#1A1A1A]">
@@ -402,6 +795,7 @@ export const OrganizationSettings = () => {
                   )}
 
                   <OrganizationMembersList orgId={org._id} isAdmin={org.userRole === 'OrgAdmin'} />
+                  <OrganizationTeamsSection orgId={org._id} isAdmin={org.userRole === 'OrgAdmin'} />
 
                   {activeWorkspace !== org._id && (
                     <button

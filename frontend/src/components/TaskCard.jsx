@@ -47,7 +47,7 @@ const TaskCard = ({ task, onClick, isOverlay }) => {
       style={style}
       {...attributes}
       {...listeners}
-      onClick={(e) => {
+      onClick={() => {
         // Only trigger click if we aren't dragging
         if (!isDragging) {
           onClick(task);
@@ -66,6 +66,11 @@ const TaskCard = ({ task, onClick, isOverlay }) => {
       <p className="text-sm font-medium text-[#1A1A1A] mt-2 leading-snug">
         {task.title}
       </p>
+      {task.meetingTitle && (
+        <p className="mt-1 text-[11px] text-[#7C3AED] font-medium truncate" title={task.meetingTitle}>
+          From: {task.meetingTitle}
+        </p>
+      )}
       <div className="mt-3 flex items-center justify-between text-xs text-[#6B6560]">
         <span className="flex items-center gap-1">
           <Clock size={11} />

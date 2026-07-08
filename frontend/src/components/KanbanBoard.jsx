@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   DndContext,
   closestCorners,
@@ -8,7 +8,6 @@ import {
   useSensors,
   DragOverlay
 } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import TaskColumn from './TaskColumn';
 import TaskCard from './TaskCard';
 

@@ -66,6 +66,8 @@ export const createMeetingSchema = z.object({
     .trim()
     .min(1, 'Title is required')
     .max(200, 'Title must be at most 200 characters'),
+  meetingType: z.enum(['internal', 'external', 'standup', 'review', 'one-on-one', 'other']),
+  accessMode: z.enum(['personal', 'organization', 'teams', 'people', 'mixed']).optional(),
   description: z
     .string()
     .trim()
@@ -81,12 +83,53 @@ export const createMeetingSchema = z.object({
     .trim()
     .max(50, 'Room ID must be at most 50 characters')
     .optional(),
+  status: z.enum(['scheduled', 'ongoing', 'completed']).optional(),
+  organizationId: z.string().nullable().optional(),
+  allowedParticipants: z.array(z.string()).optional(),
+  allowedTeams: z.array(z.string()).optional(),
+}).superRefine((data, ctx) => {
+  const allowedParticipants = data.allowedParticipants || [];
+  const allowedTeams = data.allowedTeams || [];
+  const accessMode = data.accessMode;
+
+  if (accessMode && accessMode !== 'personal' && !data.organizationId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['organizationId'],
+      message: 'organizationId is required for organization meetings',
+    });
+  }
+
+  if (accessMode === 'teams' && allowedTeams.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['allowedTeams'],
+      message: 'Select at least one team',
+    });
+  }
+
+  if (accessMode === 'people' && allowedParticipants.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['allowedParticipants'],
+      message: 'Select at least one person',
+    });
+  }
+
+  if (accessMode === 'mixed' && allowedParticipants.length === 0 && allowedTeams.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['allowedParticipants'],
+      message: 'Select at least one person or one team',
+    });
+  }
 });
 
 export const updateMeetingSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().trim().max(2000).optional(),
   status: z.enum(['scheduled', 'ongoing', 'completed']).optional(),
+  accessMode: z.enum(['personal', 'organization', 'teams', 'people', 'mixed']).optional(),
 });
 
 // ─── TASK SCHEMAS ───
@@ -104,6 +147,7 @@ export const createTaskSchema = z.object({
     .optional(),
   status: z.enum(['Todo', 'In Progress', 'In Review', 'Done']).optional(),
   meetingId: z.string().nullable().optional(),
+  meetingTitle: z.string().max(200).optional(),
   dueDate: z.string().nullable().optional(),
   organizationId: z.string().nullable().optional(),
   teamId: z.string().nullable().optional(),
@@ -119,6 +163,7 @@ export const updateTaskSchema = z.object({
   assignee: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   teamId: z.string().nullable().optional(),
+  meetingTitle: z.string().max(200).optional(),
   priority: z.enum(['high', 'medium', 'low']).optional(),
   tags: z.array(z.string()).optional(),
 });
@@ -133,6 +178,7 @@ export const createSummarySchema = z.object({
     task: z.string(),
     assignee: z.string().optional(),
     status: z.string().optional(),
+    taskId: z.string().optional(),
   })).optional(),
   transcript: z.array(z.string()).optional(),
   duration: z.string().optional(),

@@ -1,6 +1,7 @@
 import Meeting from '../models/Meeting.js';
 import Summary from '../models/Summary.js';
 import Task from '../models/Task.js';
+import Message from '../models/Message.js';
 import aiService from '../services/aiService.js';
 
 export const getSummaryByMeeting = async (req, res) => {
@@ -28,6 +29,7 @@ export const getSummaryByMeeting = async (req, res) => {
 
     const manualTasks = await Task.find({ meetingId: meeting._id }).populate('assignee', 'name');
     const formattedTasks = manualTasks.map(t => ({
+      taskId: t._id.toString(),
       id: t._id.toString(),
       task: t.title,
       assignee: t.assignee?.name || 'Unassigned',
@@ -40,7 +42,28 @@ export const getSummaryByMeeting = async (req, res) => {
       allActionItems = [];
     }
     
-    const combinedActionItems = [...allActionItems, ...formattedTasks];
+    const taskById = new Map(formattedTasks.map((task) => [task.taskId, task]));
+    const enrichedActionItems = allActionItems.map((item) => {
+      if (item.taskId && taskById.has(item.taskId)) {
+        const task = taskById.get(item.taskId);
+        return {
+          ...item,
+          assignee: task.assignee,
+          status: task.status,
+          done: task.done,
+        };
+      }
+      return item;
+    });
+    const seenTaskIds = new Set(
+      enrichedActionItems
+        .map((item) => item.taskId)
+        .filter(Boolean)
+    );
+    const combinedActionItems = [
+      ...enrichedActionItems,
+      ...formattedTasks.filter((task) => !seenTaskIds.has(task.taskId)),
+    ];
     if (combinedActionItems.length === 0) {
       combinedActionItems.push({
         id: 'none',
@@ -59,6 +82,7 @@ export const getSummaryByMeeting = async (req, res) => {
       duration: calculatedDuration,
       participants: meeting.participants.map(p => p.name) || [],
       summary: summary?.summary || 'No AI summary generated yet.',
+      conclusions: summary?.conclusions || '',
       actionItems: combinedActionItems,
       transcript: summary?.transcript || [],
       attachments: meeting.attachments || [],
@@ -100,18 +124,25 @@ export const generatePendingSummary = async (req, res) => {
 
     // Call AI Service
     const fullTranscriptText = summaryDoc.transcript.join('\n');
-    const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
+    const messages = await Message.find({ roomId: meeting.roomId }).populate('sender', 'name');
+    const chatText = messages
+      .map((message) => `${message.sender?.name || 'User'}: ${message.text}`)
+      .join('\n');
+    const notesText = meeting.notes || '';
+    const { summary, conclusions, actionItems } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
 
     await Summary.updateOne(
       { _id: summaryDoc._id },
       {
         $set: {
           summary: summary,
+          conclusions: conclusions || '',
           actionItems: actionItems.map((item, index) => ({
             id: index + 1,
             task: item,
             assignee: 'Unassigned',
-            status: 'pending'
+            status: 'pending',
+            taskId: summaryDoc.actionItems?.[index]?.taskId || null
           }))
         }
       }

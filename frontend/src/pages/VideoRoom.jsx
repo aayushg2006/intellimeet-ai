@@ -33,11 +33,12 @@ import {
   FileIcon,
   FileText,
   CheckSquare,
-  Plus
+  Plus,
+  Newspaper
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
-const VideoTile = ({ tile, large = false, pinnedId, setPinnedId, localStream, remoteStreams, videoRef }) => {
+const VideoTile = ({ tile, pinnedId, setPinnedId, localStream, remoteStreams, videoRef }) => {
   const internalRef = useRef(null)
   const tileRef = tile.isLocal ? videoRef : internalRef
 
@@ -153,6 +154,7 @@ export const VideoRoom = () => {
   const [showChat, setShowChat] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   const [showTasks, setShowTasks] = useState(false)
+  const [showTranscriptPanel, setShowTranscriptPanel] = useState(true)
   const [sharedNotes, setSharedNotes] = useState('')
   const [tasks, setTasks] = useState([])
   const [newTaskTitle, setNewTaskTitle] = useState('')
@@ -170,17 +172,18 @@ export const VideoRoom = () => {
   const [copied, setCopied] = useState(false)
   const [captions, setCaptions] = useState([])
   const [interimCaption, setInterimCaption] = useState('')
-  const [speechUnsupported, setSpeechUnsupported] = useState(false)
+  const [speechUnsupported, setSpeechUnsupported] = useState(() => !(window.SpeechRecognition || window.webkitSpeechRecognition))
   const [captionEpoch, setCaptionEpoch] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
-  const [sharedFiles, setSharedFiles] = useState([])
   const mediaRecorderRef = useRef(null)
   const recordedChunksRef = useRef([])
   const recordingTimerRef = useRef(null)
   const fileInputRef = useRef(null)
   const recordingUploadPromiseRef = useRef(null)
+  const transcriptPanelRef = useRef(null)
+  const [liveTranscriptEntries, setLiveTranscriptEntries] = useState([])
   const [isEndingCall, setIsEndingCall] = useState(false)
   const [showEndModal, setShowEndModal] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -208,7 +211,7 @@ export const VideoRoom = () => {
     handleUserDisconnected
   } = useWebRTC()
 
-  const { participantName } = useMeetingStore()
+  const { participantName, joinPreferences } = useMeetingStore()
   const { user } = useAuthStore()
 
   // Normalize user ID once
@@ -242,9 +245,9 @@ export const VideoRoom = () => {
     // Start or stop transcription when mic toggles
     if (recognitionRef.current && !speechUnsupported) {
       if (isAudioEnabled) {
-        try { recognitionRef.current.start() } catch (e) {}
+        try { recognitionRef.current.start() } catch (error) { void error }
       } else {
-        try { recognitionRef.current.stop() } catch (e) {}
+        try { recognitionRef.current.stop() } catch (error) { void error }
       }
     }
   }, [isAudioEnabled])
@@ -279,14 +282,20 @@ export const VideoRoom = () => {
   // Restart transcription if they just granted permission (localStream becomes available)
   useEffect(() => {
     if (localStream && isAudioEnabled && recognitionRef.current && !speechUnsupported) {
-      try { recognitionRef.current.start() } catch (e) {}
+      try { recognitionRef.current.start() } catch (error) { void error }
     }
   }, [localStream])
 
+  useEffect(() => {
+    if (transcriptPanelRef.current) {
+      transcriptPanelRef.current.scrollTop = transcriptPanelRef.current.scrollHeight
+    }
+  }, [liveTranscriptEntries, showTranscriptPanel])
+
   // ─── INITIALIZE MEDIA ON MOUNT ───
   useEffect(() => {
-    initializeMedia()
-  }, [initializeMedia])
+    initializeMedia(joinPreferences)
+  }, [initializeMedia, joinPreferences])
 
   // ─── SINGLE STABLE SOCKET LIFECYCLE ───
   useEffect(() => {
@@ -294,12 +303,6 @@ export const VideoRoom = () => {
     // Unlike cancelledRef, Mount 2 cannot reset Mount 1's flag.
     let cancelled = false
     cancelledRef.current = false // Keep recognition ref in sync
-
-    // Reset state from any previous (StrictMode) mount to avoid ghost participants
-    setRemoteParticipants([])
-    setRemoteReactions({})
-    setRemoteHands({})
-    setRemoteScreenSharer(null)
 
     // Track the socket created in THIS mount so cleanup can disconnect it
     // even if socketRef.current was overwritten by another mount
@@ -537,6 +540,19 @@ export const VideoRoom = () => {
       // Live Transcripts
       socket.on('transcript-update', (line) => {
         if (cancelled) return
+        const separatorIndex = line.indexOf(':')
+        const speaker = separatorIndex !== -1 ? line.substring(0, separatorIndex) : 'Unknown'
+        const text = separatorIndex !== -1 ? line.substring(separatorIndex + 1).trim() : line
+        setLiveTranscriptEntries((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            speaker,
+            text,
+            raw: line,
+            receivedAt: new Date().toLocaleTimeString(),
+          },
+        ].slice(-200))
         setCaptions((prev) => [
           ...prev,
           {
@@ -547,11 +563,6 @@ export const VideoRoom = () => {
         ].slice(-3))
       })
 
-      // File shared by another participant
-      socket.on('file-shared', (fileInfo) => {
-        if (cancelled) return
-        setSharedFiles((prev) => [...prev, fileInfo])
-      })
     }
 
     setup()
@@ -574,7 +585,6 @@ export const VideoRoom = () => {
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
-      setSpeechUnsupported(true)
       return
     }
 
@@ -625,7 +635,7 @@ export const VideoRoom = () => {
         if (!cancelledRef.current && isAudioEnabledRef.current) {
           setTimeout(() => {
             if (!cancelledRef.current && isAudioEnabledRef.current) {
-              try { recognition.start() } catch (e) {}
+              try { recognition.start() } catch (error) { void error }
             }
           }, 300)
         }
@@ -635,8 +645,8 @@ export const VideoRoom = () => {
       if (isAudioEnabledRef.current) {
         try {
           recognition.start()
-        } catch (e) {
-          console.error('[VideoRoom] Failed to start recognition:', e)
+        } catch (error) {
+          console.error('[VideoRoom] Failed to start recognition:', error)
         }
       }
     }, 500) // Delay allows previous StrictMode recognition instance to fully release
@@ -644,7 +654,7 @@ export const VideoRoom = () => {
     return () => {
       clearTimeout(startTimer)
       if (recognitionRef.current) {
-        try { recognitionRef.current.abort() } catch (e) {}
+        try { recognitionRef.current.abort() } catch (error) { void error }
         recognitionRef.current = null
       }
     }
@@ -687,12 +697,6 @@ export const VideoRoom = () => {
   }, [isScreenSharing])
 
   // ─── HANDLERS ───
-  const endMeeting = () => {
-    if (socketRef.current) {
-      socketRef.current.emit('end-meeting', meetingId)
-    }
-  }
-
   const handleEndCall = () => {
     setShowEndModal(true)
   }
@@ -734,9 +738,15 @@ export const VideoRoom = () => {
     setChatInput('')
   }
 
-  useEffect(() => {
-    if (showChat) setHasUnread(false)
-  }, [showChat])
+  const toggleChat = () => {
+    setShowChat((prev) => {
+      const next = !prev
+      if (next) {
+        setHasUnread(false)
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -769,7 +779,7 @@ export const VideoRoom = () => {
           setShowEndModal(true)
           break
         case 'c':
-          setShowChat(prev => !prev)
+          toggleChat()
           break
         case 'p':
           setShowParticipants(prev => !prev)
@@ -865,8 +875,8 @@ export const VideoRoom = () => {
           tracks.push(...dest.stream.getAudioTracks());
         }
         mixedStream = new MediaStream(tracks);
-      } catch (err) {
-        console.error('AudioContext mixing failed, falling back to basic displayStream', err);
+      } catch (error) {
+        console.error('AudioContext mixing failed, falling back to basic displayStream', error);
         mixedStream = displayStream;
       }
 
@@ -933,8 +943,8 @@ export const VideoRoom = () => {
       recordingTimerRef.current = setInterval(() => {
         setRecordingTime((prev) => prev + 1)
       }, 1000)
-    } catch (err) {
-      console.error('Error starting recording:', err)
+    } catch (error) {
+      console.error('Error starting recording:', error)
       setIsRecording(false)
     }
   }
@@ -1466,7 +1476,7 @@ export const VideoRoom = () => {
               <ReactQuill 
                 theme="snow"
                 value={sharedNotes}
-                onChange={(content, delta, source, editor) => {
+                onChange={(content, delta, source) => {
                   setSharedNotes(content)
                   if (source === 'user' && socketRef.current) {
                     socketRef.current.emit('note-update', meetingId, content)
@@ -1517,6 +1527,7 @@ export const VideoRoom = () => {
                       const res = await axios.post('/api/tasks', {
                         title: newTaskTitle,
                         meetingId: meetingInfo?._id,
+                        meetingTitle: meetingInfo?.title,
                         organizationId: meetingInfo?.organizationId
                       }, {
                         headers: token ? { Authorization: `Bearer ${token}` } : {}
@@ -1540,6 +1551,7 @@ export const VideoRoom = () => {
                     const res = await axios.post('/api/tasks', {
                       title: newTaskTitle,
                       meetingId: meetingInfo?._id,
+                      meetingTitle: meetingInfo?.title,
                       organizationId: meetingInfo?.organizationId
                     }, {
                       headers: token ? { Authorization: `Bearer ${token}` } : {}
@@ -1559,6 +1571,38 @@ export const VideoRoom = () => {
           </div>
         )}
       </div>
+
+      {showTranscriptPanel && (
+        <div className={`${isMobile ? 'fixed inset-x-0 top-16 bottom-0 z-40 border-t border-white/10' : 'fixed top-16 bottom-20 right-0 w-[380px] z-30 border-l border-white/10'} bg-[#111113] flex flex-col flex-shrink-0`}>
+          <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Live Transcript</h2>
+              <p className="text-xs text-white/40">Raw transcript feed from the meeting</p>
+            </div>
+            <button onClick={() => setShowTranscriptPanel(false)} className="text-white/40 hover:text-white transition">
+              <X size={18} />
+            </button>
+          </div>
+          <div ref={transcriptPanelRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+            {liveTranscriptEntries.length === 0 ? (
+              <div className="text-sm text-white/30 text-center mt-8">
+                Waiting for live transcript events...
+              </div>
+            ) : (
+              liveTranscriptEntries.map((entry) => (
+                <div key={entry.id} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <p className="text-xs font-semibold text-[#7C3AED]">{entry.speaker}</p>
+                    <span className="text-[10px] text-white/30 font-mono">{entry.receivedAt}</span>
+                  </div>
+                  <p className="text-sm text-white/85 whitespace-pre-wrap break-words">{entry.text}</p>
+                  <p className="mt-2 text-[10px] text-white/30 font-mono break-all">raw: {entry.raw}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Host admit/deny requests overlay */}
       {isHost && joinRequests.length > 0 && (
@@ -1673,7 +1717,7 @@ export const VideoRoom = () => {
         )}
 
         <button
-          onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); setShowNotes(false); setShowTasks(false) }}
+          onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); setShowNotes(false); setShowTasks(false); setShowTranscriptPanel(false) }}
           className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showParticipants ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
           title="Show Participants"
         >
@@ -1682,7 +1726,7 @@ export const VideoRoom = () => {
         </button>
 
         <button
-          onClick={() => { setShowChat(!showChat); setShowParticipants(false); setShowNotes(false); setShowTasks(false) }}
+          onClick={() => { toggleChat(); setShowParticipants(false); setShowNotes(false); setShowTasks(false); setShowTranscriptPanel(false) }}
           className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showChat ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
           title="Toggle Chat"
         >
@@ -1692,7 +1736,7 @@ export const VideoRoom = () => {
 
         {!isMobile && (
           <button
-            onClick={() => { setShowNotes(!showNotes); setShowChat(false); setShowParticipants(false); setShowTasks(false) }}
+          onClick={() => { setShowNotes(!showNotes); setShowChat(false); setShowParticipants(false); setShowTasks(false); setShowTranscriptPanel(false) }}
             className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showNotes ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
             title="Shared Notes"
           >
@@ -1702,11 +1746,21 @@ export const VideoRoom = () => {
 
         {!isMobile && (
           <button
-            onClick={() => { setShowTasks(!showTasks); setShowChat(false); setShowParticipants(false); setShowNotes(false) }}
+          onClick={() => { setShowTasks(!showTasks); setShowChat(false); setShowParticipants(false); setShowNotes(false); setShowTranscriptPanel(false) }}
             className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showTasks ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
             title="Tasks"
           >
             <CheckSquare size={20} />
+          </button>
+        )}
+
+        {!isMobile && (
+          <button
+            onClick={() => { setShowTranscriptPanel(!showTranscriptPanel); setShowChat(false); setShowParticipants(false); setShowNotes(false); setShowTasks(false) }}
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showTranscriptPanel ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title="Live Transcript"
+          >
+            <Newspaper size={20} />
           </button>
         )}
 
@@ -1774,11 +1828,11 @@ export const VideoRoom = () => {
                       mediaRecorderRef.current = null
                       setIsRecording(false)
                       if (recordingUploadPromiseRef.current) {
-                        try { await recordingUploadPromiseRef.current } catch (e) {}
+                      try { await recordingUploadPromiseRef.current } catch (error) { void error }
                       }
                     }
                     if (recognitionRef.current) {
-                      try { recognitionRef.current.stop() } catch (e) {}
+                      try { recognitionRef.current.stop() } catch (error) { void error }
                     }
                     stopMedia()
                     toast.success('You left the meeting')
@@ -1787,7 +1841,7 @@ export const VideoRoom = () => {
                       socketRef.current = null
                     }
                     navigate(`/dashboard`)
-                  } catch (err) {
+                  } catch {
                     stopMedia()
                     navigate(`/dashboard`)
                   }
@@ -1808,11 +1862,11 @@ export const VideoRoom = () => {
                         mediaRecorderRef.current = null
                         setIsRecording(false)
                         if (recordingUploadPromiseRef.current) {
-                          try { await recordingUploadPromiseRef.current } catch (e) {}
+                        try { await recordingUploadPromiseRef.current } catch (error) { void error }
                         }
                       }
                       if (recognitionRef.current) {
-                        try { recognitionRef.current.stop() } catch (e) {}
+                        try { recognitionRef.current.stop() } catch (error) { void error }
                       }
                       stopMedia()
                       if (socketRef.current) {
@@ -1821,7 +1875,7 @@ export const VideoRoom = () => {
                         socketRef.current = null
                       }
                       navigate(`/meeting/${meetingId}/summary`)
-                    } catch (err) {
+                    } catch {
                       stopMedia()
                       navigate(`/meeting/${meetingId}/summary`)
                     }
