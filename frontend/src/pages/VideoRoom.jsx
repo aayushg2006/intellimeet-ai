@@ -1754,12 +1754,12 @@ export const VideoRoom = () => {
       {showEndModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-[#1C1C1E] border border-white/10 rounded-2xl p-6 w-80 shadow-2xl">
-            <h3 className="text-white font-semibold text-lg mb-2">End meeting?</h3>
-            <p className="text-white/50 text-sm mb-6">This will end the meeting for you.</p>
-            <div className="flex gap-3">
+            <h3 className="text-white font-semibold text-lg mb-2">{isHost ? 'Leave or End Meeting?' : 'Leave meeting?'}</h3>
+            <p className="text-white/50 text-sm mb-6">{isHost ? 'You can leave the meeting open for others, or end it for everyone.' : 'This will disconnect you from the meeting.'}</p>
+            <div className="flex flex-col gap-3">
               <button
                 onClick={() => setShowEndModal(false)}
-                className="flex-1 border border-white/10 text-white/70 hover:bg-white/5 rounded-xl py-2.5 text-sm font-medium transition"
+                className="w-full border border-white/10 text-white/70 hover:bg-white/5 rounded-xl py-2.5 text-sm font-medium transition"
               >
                 Cancel
               </button>
@@ -1769,50 +1769,68 @@ export const VideoRoom = () => {
                   setIsEndingCall(true)
                   isEndingCallRef.current = true
                   try {
-                    // Stop recording and wait for upload if active
                     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
                       mediaRecorderRef.current.stop()
                       mediaRecorderRef.current = null
                       setIsRecording(false)
-                      // Wait for the recording upload to complete
                       if (recordingUploadPromiseRef.current) {
-                        try {
-                          await recordingUploadPromiseRef.current
-                        } catch (e) {
-                          console.error('[VideoRoom] Recording upload failed during end:', e)
-                        }
+                        try { await recordingUploadPromiseRef.current } catch (e) {}
                       }
                     }
-                    // Stop speech recognition
                     if (recognitionRef.current) {
                       try { recognitionRef.current.stop() } catch (e) {}
                     }
-                    // Stop media tracks
                     stopMedia()
-                    if (isHost) {
-                      // Emit end-meeting to server (will broadcast meeting-ended to others)
-                      if (socketRef.current) {
-                        socketRef.current.emit('end-meeting', meetingId)
-                      }
-                    } else {
-                      toast.success('You left the meeting')
-                    }
-                    // Disconnect socket and navigate
+                    toast.success('You left the meeting')
                     if (socketRef.current) {
                       socketRef.current.disconnect()
                       socketRef.current = null
                     }
-                    navigate(`/meeting/${meetingId}/summary`)
+                    navigate(`/dashboard`)
                   } catch (err) {
-                    console.error('[VideoRoom] Error ending meeting:', err)
                     stopMedia()
-                    navigate(`/meeting/${meetingId}/summary`)
+                    navigate(`/dashboard`)
                   }
                 }}
-                className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl py-2.5 text-sm font-medium transition"
+                className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 text-sm font-medium transition"
               >
-                End meeting
+                Leave meeting
               </button>
+              {isHost && (
+                <button
+                  onClick={async () => {
+                    setShowEndModal(false)
+                    setIsEndingCall(true)
+                    isEndingCallRef.current = true
+                    try {
+                      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+                        mediaRecorderRef.current.stop()
+                        mediaRecorderRef.current = null
+                        setIsRecording(false)
+                        if (recordingUploadPromiseRef.current) {
+                          try { await recordingUploadPromiseRef.current } catch (e) {}
+                        }
+                      }
+                      if (recognitionRef.current) {
+                        try { recognitionRef.current.stop() } catch (e) {}
+                      }
+                      stopMedia()
+                      if (socketRef.current) {
+                        socketRef.current.emit('end-meeting', meetingId)
+                        socketRef.current.disconnect()
+                        socketRef.current = null
+                      }
+                      navigate(`/meeting/${meetingId}/summary`)
+                    } catch (err) {
+                      stopMedia()
+                      navigate(`/meeting/${meetingId}/summary`)
+                    }
+                  }}
+                  className="w-full bg-red-500 hover:bg-red-600 text-white rounded-xl py-2.5 text-sm font-medium transition"
+                >
+                  End meeting for everyone
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -103,22 +103,22 @@ export const createTaskSchema = z.object({
     .max(2000, 'Description must be at most 2000 characters')
     .optional(),
   status: z.enum(['Todo', 'In Progress', 'In Review', 'Done']).optional(),
-  meetingId: z.string().optional(),
-  dueDate: z.string().optional(),
-  organizationId: z.string().optional(),
-  teamId: z.string().optional(),
+  meetingId: z.string().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+  organizationId: z.string().nullable().optional(),
+  teamId: z.string().nullable().optional(),
   priority: z.enum(['high', 'medium', 'low']).optional(),
   tags: z.array(z.string()).optional(),
-  assignee: z.string().optional(),
+  assignee: z.string().nullable().optional(),
 });
 
 export const updateTaskSchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),
   description: z.string().trim().max(2000).optional(),
   status: z.enum(['Todo', 'In Progress', 'In Review', 'Done']).optional(),
-  assignee: z.string().optional(),
-  dueDate: z.string().optional(),
-  teamId: z.string().optional(),
+  assignee: z.string().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+  teamId: z.string().nullable().optional(),
   priority: z.enum(['high', 'medium', 'low']).optional(),
   tags: z.array(z.string()).optional(),
 });

@@ -74,3 +74,6 @@ implementation_plan.md
 
 backend/clearDB.js
 backend/drop.js
+
+#tests
+backend/tests

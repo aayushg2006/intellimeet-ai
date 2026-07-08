@@ -1,6 +1,7 @@
 import Meeting from '../models/Meeting.js';
 import Message from '../models/Message.js';
 import Summary from '../models/Summary.js';
+import Task from '../models/Task.js';
 import mongoose from 'mongoose';
 import aiService from '../services/aiService.js';
 import jwt from 'jsonwebtoken';
@@ -389,8 +390,13 @@ const socketHandler = (io) => {
                       await summaryDoc.save();
                     }
 
+                    // Fetch chat messages
+                    const messages = await Message.find({ roomId });
+                    const chatText = messages.map(m => `${m.sender?.name || 'User'}: ${m.text}`).join('\n');
+                    const notesText = meeting.notes || '';
+
                     // Call Ollama for summary and action items
-                    const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText);
+                    const { summary, actionItems } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
                     
                     await Summary.updateOne(
                       { _id: summaryDoc._id },
@@ -406,7 +412,28 @@ const socketHandler = (io) => {
                         }
                       }
                     );
-                    console.log(`[AI] Summary saved for meeting ${roomId}.`);
+                    
+                    // Create tasks in Kanban board
+                    if (actionItems && actionItems.length > 0) {
+                      for (const item of actionItems) {
+                        try {
+                          await Task.create({
+                            title: item.substring(0, 50) + (item.length > 50 ? '...' : ''),
+                            description: item,
+                            status: 'Todo',
+                            priority: 'medium',
+                            meetingId: meetingId,
+                            organizationId: meetingOrgId,
+                            teamId: meeting.teamId,
+                            assignee: null
+                          });
+                        } catch (e) {
+                          console.error('[AI] Failed to create task for action item:', e);
+                        }
+                      }
+                    }
+
+                    console.log(`[AI] Summary and tasks saved for meeting ${roomId}.`);
                   }
                   
                   // Clear in-memory copy

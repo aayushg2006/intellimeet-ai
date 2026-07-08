@@ -10,21 +10,27 @@ class AIService {
    * @param {String} transcript - The full text transcript of the meeting
    * @returns {Object} { summary, actionItems }
    */
-  async generateSummary(transcript) {
-    if (!transcript || transcript.trim().length === 0) {
+  async generateSummary(transcript, chat = '', notes = '') {
+    if (!transcript && !chat && !notes) {
       return {
-        summary: "No meaningful conversation was transcribed during this meeting.",
+        summary: "No meaningful conversation, chat, or notes were recorded during this meeting.",
         actionItems: []
       };
     }
 
     const prompt = `
-You are an expert AI meeting assistant. Below is the transcript of a meeting. 
-Please analyze the transcript and provide a concise summary and a list of action items.
+You are an expert AI meeting assistant. Below is the transcript, chat history, and shared notes of a meeting. 
+Please analyze all sources and provide a clean, precisely explained summary so that anyone can understand it, and a list of action items.
 
 Format your response exactly like this, using exactly these headers:
-SUMMARY:
-(2-3 paragraphs summarizing the key points of the meeting)
+TRANSCRIPT SUMMARY:
+(1-2 paragraphs summarizing the spoken transcript)
+
+CHAT SUMMARY:
+(1-2 paragraphs summarizing the chat messages)
+
+NOTES SUMMARY:
+(1-2 paragraphs summarizing the shared notes)
 
 ACTION ITEMS:
 - [Assignee Name if any] Action item description
@@ -32,7 +38,17 @@ ACTION ITEMS:
 
 Meeting Transcript:
 """
-${transcript}
+${transcript || '(No transcript)'}
+"""
+
+Chat Messages:
+"""
+${chat || '(No chat messages)'}
+"""
+
+Shared Notes:
+"""
+${notes || '(No shared notes)'}
 """
 `;
 
@@ -55,13 +71,19 @@ ${transcript}
       const resultText = response.text || '';
       
       // Parse the result
-      let summary = '';
+      let transcriptSummary = '';
+      let chatSummary = '';
+      let notesSummary = '';
       let actionItems = [];
 
-      const summaryMatch = resultText.match(/SUMMARY:\s*([\s\S]*?)(?=ACTION ITEMS:|$)/i);
-      if (summaryMatch && summaryMatch[1]) {
-        summary = summaryMatch[1].trim();
-      }
+      const tMatch = resultText.match(/TRANSCRIPT SUMMARY:\s*([\s\S]*?)(?=CHAT SUMMARY:|$)/i);
+      if (tMatch && tMatch[1]) transcriptSummary = tMatch[1].trim();
+
+      const cMatch = resultText.match(/CHAT SUMMARY:\s*([\s\S]*?)(?=NOTES SUMMARY:|$)/i);
+      if (cMatch && cMatch[1]) chatSummary = cMatch[1].trim();
+
+      const nMatch = resultText.match(/NOTES SUMMARY:\s*([\s\S]*?)(?=ACTION ITEMS:|$)/i);
+      if (nMatch && nMatch[1]) notesSummary = nMatch[1].trim();
 
       const actionItemsMatch = resultText.match(/ACTION ITEMS:\s*([\s\S]*)/i);
       if (actionItemsMatch && actionItemsMatch[1]) {
@@ -69,12 +91,17 @@ ${transcript}
         actionItems = items.map(item => item.replace(/^-?\s*/, ''));
       }
 
+      let summary = '';
+      if (transcriptSummary) summary += `### Transcript Summary\n${transcriptSummary}\n\n`;
+      if (chatSummary) summary += `### Chat Summary\n${chatSummary}\n\n`;
+      if (notesSummary) summary += `### Notes Summary\n${notesSummary}\n\n`;
+
       // Fallback if parsing fails
-      if (!summary && !actionItems.length) {
+      if (!summary.trim() && !actionItems.length) {
         summary = resultText;
       }
 
-      return { summary, actionItems };
+      return { summary: summary.trim(), actionItems };
     } catch (error) {
       console.error('Gemini API generation error:', error.message);
       return {
