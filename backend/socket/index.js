@@ -368,112 +368,143 @@ const socketHandler = (io) => {
             io.to(roomId).emit('meeting-ended');
 
             if (!wasAlreadyCompleted) {
-              // --- AI Summary Generation (fire-and-forget) ---
-              // Run in background so the socket handler completes immediately
-                  const meetingId = meeting._id;
-                  const meetingOrgId = meeting.organizationId;
-                  const meetingTitle = meeting.title;
-                  const meetingDate = meeting.createdAt.toISOString().split('T')[0];
+              const meetingId = meeting._id;
+              const meetingOrgId = meeting.organizationId;
+              const meetingTitle = meeting.title;
+              const meetingDate = meeting.createdAt.toISOString().split('T')[0];
 
-                  (async () => {
+              (async () => {
                 try {
-                  // Read transcript from DB (survives server restarts)
                   let summaryDoc = await Summary.findOne({ meetingId });
-                  const transcript = summaryDoc?.transcript || roomTranscripts[roomId] || [];
-                  
-                  if (transcript.length > 0) {
-                    const fullTranscriptText = transcript.join('\n');
-                    console.log(`[AI] Generating summary for meeting ${roomId}...`);
-                    
-                    // Ensure summary doc exists
-                    if (!summaryDoc) {
-                      summaryDoc = new Summary({
-                        meetingId,
-                        organizationId: meetingOrgId,
-                        title: meetingTitle,
-                        date: meetingDate,
-                        transcript: transcript
-                      });
-                      await summaryDoc.save();
-                    }
+                  const transcript = summaryDoc?.transcript?.length ? summaryDoc.transcript : (roomTranscripts[roomId] || []);
+                  const messages = await Message.find({ roomId }).populate('sender', 'name');
+                  const chatText = messages.map((m) => `${m.sender?.name || 'User'}: ${m.text}`).join('\n');
+                  const notesText = meeting.notes || '';
+                  const hasContent = Boolean(transcript.length || chatText.trim() || notesText.trim());
 
-                    // Fetch chat messages
-                    const messages = await Message.find({ roomId }).populate('sender', 'name');
-                    const chatText = messages.map(m => `${m.sender?.name || 'User'}: ${m.text}`).join('\n');
-                    const notesText = meeting.notes || '';
-
-                    // Call Ollama for summary and action items
-                    const {
-                      summary,
-                      transcriptSummary,
-                      chatSummary,
-                      notesSummary,
-                      conclusions,
-                      actionItems
-                    } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
-                    
-                    const enrichedActionItems = [];
-
-                    // Create tasks in Kanban board
-                    if (actionItems && actionItems.length > 0) {
-                      for (let index = 0; index < actionItems.length; index += 1) {
-                        const item = actionItems[index];
-                        const taskText = item.task || '';
-                        try {
-                          const createdTask = await Task.create({
-                            title: taskText.substring(0, 50) + (taskText.length > 50 ? '...' : ''),
-                            description: taskText,
-                            status: 'Todo',
-                            priority: 'medium',
-                            meetingId: meetingId,
-                            meetingTitle: meetingTitle,
-                            organizationId: meetingOrgId,
-                            teamId: meeting.teamId,
-                            assignee: null
-                          });
-                          enrichedActionItems.push({
-                            id: index + 1,
-                            task: taskText,
-                            assignee: item.assignee || 'Unassigned',
-                            status: item.status || 'pending',
-                            meetingTitle: meetingTitle,
-                            taskId: createdTask._id.toString(),
-                          });
-                        } catch (e) {
-                          console.error('[AI] Failed to create task for action item:', e);
-                        }
-                      }
-                    }
-
+                  if (!summaryDoc) {
+                    summaryDoc = new Summary({
+                      meetingId,
+                      organizationId: meetingOrgId,
+                      title: meetingTitle,
+                      date: meetingDate,
+                      transcript,
+                      generationStatus: hasContent ? 'generating' : 'failed',
+                      generationError: hasContent ? '' : 'No transcript, chat, or notes were captured for this meeting.',
+                      generationStartedAt: hasContent ? new Date() : undefined
+                    });
+                    await summaryDoc.save();
+                  } else {
                     await Summary.updateOne(
                       { _id: summaryDoc._id },
                       {
                         $set: {
-                          summary: summary,
-                          transcriptSummary: transcriptSummary || '',
-                          chatSummary: chatSummary || '',
-                          notesSummary: notesSummary || '',
-                          conclusions: conclusions || '',
-                              actionItems: enrichedActionItems.length > 0
-                            ? enrichedActionItems
-                            : actionItems.map((item, index) => ({
-                                id: index + 1,
-                                task: item.task,
-                                assignee: item.assignee || 'Unassigned',
-                                status: item.status || 'pending',
-                                meetingTitle: meetingTitle
-                              }))
+                          transcript,
+                          generationStatus: hasContent ? 'generating' : 'failed',
+                          generationError: hasContent ? '' : 'No transcript, chat, or notes were captured for this meeting.',
+                          generationStartedAt: hasContent ? new Date() : summaryDoc.generationStartedAt
                         }
                       }
                     );
-
-                    console.log(`[AI] Summary and tasks saved for meeting ${roomId}.`);
                   }
-                  
-                  // Clear in-memory copy
+
+                  if (!hasContent) {
+                    delete roomTranscripts[roomId];
+                    return;
+                  }
+
+                  const fullTranscriptText = transcript.join('\n');
+                  console.log(`[AI] Generating summary for meeting ${roomId}...`);
+
+                  const {
+                    summary,
+                    transcriptSummary,
+                    chatSummary,
+                    notesSummary,
+                    conclusions,
+                    actionItems
+                  } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
+
+                  const enrichedActionItems = [];
+
+                  if (actionItems && actionItems.length > 0) {
+                    for (let index = 0; index < actionItems.length; index += 1) {
+                      const item = actionItems[index];
+                      const taskText = item.task || '';
+                      try {
+                        const createdTask = await Task.create({
+                          title: taskText.substring(0, 50) + (taskText.length > 50 ? '...' : ''),
+                          description: taskText,
+                          status: 'Todo',
+                          priority: 'medium',
+                          meetingId: meetingId,
+                          meetingTitle: meetingTitle,
+                          organizationId: meetingOrgId,
+                          teamId: meeting.teamId,
+                          assignee: null
+                        });
+                        enrichedActionItems.push({
+                          id: index + 1,
+                          task: taskText,
+                          assignee: item.assignee || 'Unassigned',
+                          status: item.status || 'pending',
+                          meetingTitle: meetingTitle,
+                          taskId: createdTask._id.toString(),
+                        });
+                      } catch (e) {
+                        console.error('[AI] Failed to create task for action item:', e);
+                      }
+                    }
+                  }
+
+                  const storedActionItems = enrichedActionItems.length > 0
+                    ? enrichedActionItems
+                    : actionItems.map((item, index) => ({
+                        id: index + 1,
+                        task: item.task,
+                        assignee: item.assignee || 'Unassigned',
+                        status: item.status || 'pending',
+                        meetingTitle: meetingTitle
+                      }));
+
+                  await Summary.updateOne(
+                    { _id: summaryDoc._id },
+                    {
+                      $set: {
+                        summary,
+                        transcriptSummary: transcriptSummary || '',
+                        chatSummary: chatSummary || '',
+                        notesSummary: notesSummary || '',
+                        conclusions: conclusions || '',
+                        generationStatus: 'completed',
+                        generationError: '',
+                        generationStartedAt: summaryDoc.generationStartedAt || new Date(),
+                        generatedAt: new Date(),
+                        actionItems: storedActionItems
+                      }
+                    }
+                  );
+
+                  console.log(`[AI] Summary and tasks saved for meeting ${roomId}.`);
                   delete roomTranscripts[roomId];
                 } catch (aiErr) {
                   console.error(`[AI] Background summary generation failed for ${roomId}:`, aiErr.message);
+                  try {
+                    const failedSummaryDoc = await Summary.findOne({ meetingId: meeting._id });
+                    if (failedSummaryDoc) {
+                      await Summary.updateOne(
+                        { _id: failedSummaryDoc._id },
+                        {
+                          $set: {
+                            generationStatus: 'failed',
+                            generationError: aiErr.message || 'Failed to generate summary.'
+                          }
+                        }
+                      );
+                    }
+                  } catch (statusErr) {
+                    console.error('[AI] Failed to update summary failure status:', statusErr);
+                  }
                 }
               })();
             }

@@ -3,6 +3,15 @@ import Organization from '../models/Organization.js';
 import Meeting from '../models/Meeting.js';
 import s3Service from '../services/s3Service.js';
 
+const findMeetingByIdentifier = async (identifier) => {
+  if (!identifier) return null;
+  const queries = [{ roomId: identifier }];
+  if (/^[0-9a-fA-F]{24}$/.test(identifier)) {
+    queries.push({ _id: identifier });
+  }
+  return Meeting.findOne({ $or: queries });
+};
+
 /**
  * @route   POST /api/uploads/avatar
  * @desc    Upload user profile avatar
@@ -100,16 +109,13 @@ export const uploadMeetingFile = async (req, res) => {
       return res.status(400).json({ message: 'meetingId is required' });
     }
 
-    // Find meeting by roomId or _id
-    let meeting = await Meeting.findOne({ roomId: meetingId });
-    if (!meeting && meetingId.match(/^[0-9a-fA-F]{24}$/)) {
-      meeting = await Meeting.findById(meetingId);
-    }
+    const meeting = await findMeetingByIdentifier(meetingId);
     if (!meeting) {
       return res.status(404).json({ message: 'Meeting not found' });
     }
 
-    const key = s3Service.generateKey('meetings', meetingId, req.file.originalname);
+    const keyOwner = meeting._id.toString();
+    const key = s3Service.generateKey('meetings', keyOwner, req.file.originalname);
     await s3Service.uploadFile(req.file.buffer, key, req.file.mimetype);
 
     const attachment = {
@@ -152,10 +158,7 @@ export const uploadRecording = async (req, res) => {
       return res.status(400).json({ message: 'meetingId is required' });
     }
 
-    let meeting = await Meeting.findOne({ roomId: meetingId });
-    if (!meeting && meetingId.match(/^[0-9a-fA-F]{24}$/)) {
-      meeting = await Meeting.findById(meetingId);
-    }
+    const meeting = await findMeetingByIdentifier(meetingId);
     if (!meeting) {
       return res.status(404).json({ message: 'Meeting not found' });
     }
@@ -165,7 +168,7 @@ export const uploadRecording = async (req, res) => {
       try { await s3Service.deleteFile(meeting.recordingKey); } catch (e) { /* ignore */ }
     }
 
-    const key = s3Service.generateKey('recordings', meetingId, req.file.originalname);
+    const key = s3Service.generateKey('recordings', meeting._id.toString(), req.file.originalname);
     await s3Service.uploadFile(req.file.buffer, key, req.file.mimetype);
 
     meeting.recordingKey = key;
@@ -203,7 +206,7 @@ export const getFileUrl = async (req, res) => {
          return res.status(403).json({ message: 'Not authorized' });
       }
     } else if (folder === 'meetings') {
-      const meeting = await Meeting.findOne({ roomId: ownerId });
+      const meeting = await findMeetingByIdentifier(ownerId);
       if (!meeting || (meeting.host.toString() !== req.user._id.toString() && !meeting.participants.some(p => p.toString() === req.user._id.toString()))) {
          return res.status(403).json({ message: 'Not authorized' });
       }
@@ -240,7 +243,7 @@ export const deleteUpload = async (req, res) => {
          return res.status(403).json({ message: 'Not authorized to delete logo' });
       }
     } else if (folder === 'meetings') {
-      const meeting = await Meeting.findOne({ roomId: ownerId });
+      const meeting = await findMeetingByIdentifier(ownerId);
       if (!meeting || meeting.host.toString() !== req.user._id.toString()) {
          return res.status(403).json({ message: 'Not authorized to delete meeting files' });
       }

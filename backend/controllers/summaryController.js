@@ -87,11 +87,14 @@ export const getSummaryByMeeting = async (req, res) => {
       }),
       duration: calculatedDuration,
       participants: meeting.participants.map(p => p.name) || [],
-      summary: summary?.summary || 'No AI summary generated yet.',
+      summary: summary?.summary || '',
       transcriptSummary: summary?.transcriptSummary || '',
       chatSummary: summary?.chatSummary || '',
       notesSummary: summary?.notesSummary || '',
       conclusions: summary?.conclusions || '',
+      generationStatus: summary?.generationStatus || (summary?.summary ? 'completed' : 'pending'),
+      generationError: summary?.generationError || '',
+      generationStartedAt: summary?.generationStartedAt || null,
       actionItems: combinedActionItems,
       transcript: summary?.transcript || [],
       attachments: meeting.attachments || [],
@@ -126,18 +129,72 @@ export const generatePendingSummary = async (req, res) => {
       return res.status(404).json({ message: 'Meeting not found' });
     }
 
-    const summaryDoc = await Summary.findOne({ meetingId: meeting._id });
-    if (!summaryDoc || !summaryDoc.transcript || summaryDoc.transcript.length === 0) {
-      return res.status(400).json({ message: 'No transcript available to generate summary.' });
-    }
-
-    // Call AI Service
-    const fullTranscriptText = summaryDoc.transcript.join('\n');
     const messages = await Message.find({ roomId: meeting.roomId }).populate('sender', 'name');
     const chatText = messages
       .map((message) => `${message.sender?.name || 'User'}: ${message.text}`)
       .join('\n');
     const notesText = meeting.notes || '';
+    let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+    if (!summaryDoc) {
+      summaryDoc = new Summary({
+        meetingId: meeting._id,
+        organizationId: meeting.organizationId,
+        title: meeting.title,
+        date: meeting.createdAt.toISOString().split('T')[0],
+        transcript: [],
+        generationStatus: 'generating',
+        generationError: ''
+      });
+      await summaryDoc.save();
+    }
+    const existingTranscript = summaryDoc?.transcript || [];
+    const fullTranscriptText = existingTranscript.join('\n');
+    const hasContent = Boolean(fullTranscriptText.trim() || chatText.trim() || notesText.trim());
+
+    if (!hasContent) {
+      if (!summaryDoc) {
+        summaryDoc = new Summary({
+          meetingId: meeting._id,
+          organizationId: meeting.organizationId,
+          title: meeting.title,
+          date: meeting.createdAt.toISOString().split('T')[0],
+          transcript: [],
+          generationStatus: 'failed',
+          generationError: 'No transcript, chat, or notes were captured for this meeting.'
+        });
+        await summaryDoc.save();
+      } else {
+        await Summary.updateOne(
+          { _id: summaryDoc._id },
+          {
+            $set: {
+              generationStatus: 'failed',
+              generationError: 'No transcript, chat, or notes were captured for this meeting.',
+              summary: '',
+              conclusions: '',
+              transcriptSummary: '',
+              chatSummary: '',
+              notesSummary: '',
+              actionItems: []
+            }
+          }
+        );
+      }
+
+      return res.status(400).json({ message: 'No transcript, chat, or notes available to generate summary.' });
+    }
+
+    await Summary.updateOne(
+      { _id: summaryDoc._id },
+      {
+        $set: {
+          generationStatus: 'generating',
+          generationError: '',
+          generationStartedAt: new Date()
+        }
+      }
+    );
+
     const {
       summary,
       transcriptSummary,
@@ -156,6 +213,10 @@ export const generatePendingSummary = async (req, res) => {
           chatSummary: chatSummary || '',
           notesSummary: notesSummary || '',
           conclusions: conclusions || '',
+          generationStatus: 'completed',
+          generationError: '',
+          generationStartedAt: summaryDoc.generationStartedAt || new Date(),
+          generatedAt: new Date(),
           actionItems: actionItems.map((item, index) => ({
             id: index + 1,
             task: item.task,
@@ -169,6 +230,31 @@ export const generatePendingSummary = async (req, res) => {
     res.json({ message: 'Summary generated successfully' });
   } catch (error) {
     console.error('Generate summary error:', error);
+    try {
+      const meetingIdQuery = req.params.meetingId;
+      const meeting = await Meeting.findOne({
+        $or: [
+          { roomId: meetingIdQuery },
+          ...( /^[0-9a-fA-F]{24}$/.test(meetingIdQuery) ? [{ _id: meetingIdQuery }] : [] )
+        ]
+      }).select('_id');
+      if (meeting) {
+        const summaryDoc = await Summary.findOne({ meetingId: meeting._id });
+        if (summaryDoc) {
+          await Summary.updateOne(
+            { _id: summaryDoc._id },
+            {
+              $set: {
+                generationStatus: 'failed',
+                generationError: error.message || 'Failed to generate summary.'
+              }
+            }
+          );
+        }
+      }
+    } catch (statusErr) {
+      console.error('Failed to update summary generation status:', statusErr);
+    }
     res.status(500).json({ message: error.message });
   }
 };

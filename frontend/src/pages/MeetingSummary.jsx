@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { FileText, ArrowLeft, Clock, Users, CheckSquare, ChevronDown, ChevronUp, Copy, Check, Download, Loader, RefreshCw, Sparkles, Video, Paperclip, FileIcon, Maximize } from 'lucide-react'
+import { FileText, ArrowLeft, Clock, Users, CheckSquare, ChevronDown, ChevronUp, Copy, Check, Download, Loader, RefreshCw, Sparkles, Video, Paperclip, FileIcon, Maximize, Eye, X } from 'lucide-react'
 import axios from 'axios'
 import { useSignedUrl } from '../hooks/useSignedUrl'
 import { formatMeetingDate } from '../utils/meetingDisplay'
@@ -83,36 +83,135 @@ const RecordingPlayer = ({ recordingKey }) => {
   )
 }
 
-const SharedFile = ({ file }) => {
-  // If S3 key is provided, use signed URL, otherwise fallback to direct URL
-  const { url, loading } = useSignedUrl(file.s3Key)
-  const downloadUrl = url || file.url
-  const sizeMB = file.fileSize ? (file.fileSize / 1024 / 1024).toFixed(2) : 0
+const getFilePreviewKind = (file = {}) => {
+  const fileType = String(file.fileType || '').toLowerCase()
+  const fileName = String(file.fileName || '').toLowerCase()
+
+  if (fileType.includes('pdf') || fileName.endsWith('.pdf')) return 'pdf'
+  if (fileType.startsWith('image/')) return 'image'
+  if (fileType.startsWith('video/')) return 'video'
+  if (fileType.startsWith('audio/')) return 'audio'
+  return 'unsupported'
+}
+
+const FilePreviewModal = ({ file, onClose, onDownload }) => {
+  const { url, loading } = useSignedUrl(file?.s3Key)
+  const previewUrl = url || file?.url || ''
+  const previewKind = getFilePreviewKind(file)
+
+  if (!file) return null
 
   return (
-    <div className="flex items-center justify-between p-3 bg-white border border-[#E8E4DD] rounded-xl mb-2 hover:bg-[#F5F2EE] transition">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center px-4 py-6">
+      <div className="w-full max-w-5xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-[#E8E4DD]">
+        <div className="px-5 py-4 border-b border-[#E8E4DD] flex items-center justify-between">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-[#1A1A1A] truncate">{file.fileName}</h3>
+            <p className="text-xs text-[#6B6560]">{file.fileType || 'File preview'}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-9 h-9 rounded-full bg-[#F5F2EE] text-[#6B6560] hover:text-[#1A1A1A] flex items-center justify-center transition"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="bg-[#111113] min-h-[60vh] flex items-center justify-center p-4">
+          {loading ? (
+            <div className="text-center text-white/70">
+              <Loader className="animate-spin mx-auto mb-3" size={22} />
+              Loading preview...
+            </div>
+          ) : !previewUrl ? (
+            <div className="text-center text-white/70">
+              Unable to load preview.
+            </div>
+          ) : previewKind === 'pdf' ? (
+            <iframe
+              title={file.fileName}
+              src={previewUrl}
+              className="w-full h-[75vh] rounded-2xl bg-white"
+            />
+          ) : previewKind === 'image' ? (
+            <img
+              src={previewUrl}
+              alt={file.fileName}
+              className="max-w-full max-h-[75vh] object-contain rounded-2xl bg-white"
+            />
+          ) : previewKind === 'video' ? (
+            <video
+              src={previewUrl}
+              controls
+              className="max-w-full max-h-[75vh] rounded-2xl bg-black"
+            />
+          ) : previewKind === 'audio' ? (
+            <div className="w-full max-w-xl bg-white rounded-2xl p-6 text-center">
+              <p className="text-sm text-[#1A1A1A] mb-4">Audio preview</p>
+              <audio controls src={previewUrl} className="w-full" />
+            </div>
+          ) : (
+            <div className="w-full max-w-xl bg-white rounded-2xl p-6 text-center">
+              <p className="text-sm text-[#1A1A1A] font-medium">Preview not available for this file type.</p>
+              <p className="text-xs text-[#6B6560] mt-1">You can still download the file below.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-[#E8E4DD] flex items-center justify-between gap-3 bg-[#FAF9F7]">
+          <p className="text-xs text-[#6B6560] truncate">
+            {file.fileType || 'Unknown type'} · {file.fileSize ? `${(file.fileSize / 1024 / 1024).toFixed(2)} MB` : 'Size unknown'}
+          </p>
+          <button
+            type="button"
+            onClick={() => onDownload(file)}
+            className="inline-flex items-center gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2 rounded-xl text-sm font-semibold transition"
+          >
+            <Download size={16} />
+            Download
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const SharedFile = ({ file, onPreview, onDownload }) => {
+  const { url, loading } = useSignedUrl(file.s3Key)
+  const sizeMB = file.fileSize ? (file.fileSize / 1024 / 1024).toFixed(2) : 0
+  const previewKind = getFilePreviewKind(file)
+
+  return (
+    <div className="p-3 bg-white border border-[#E8E4DD] rounded-xl mb-2 hover:bg-[#F5F2EE] transition">
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-lg bg-[#F5F2EE] flex items-center justify-center flex-shrink-0">
           <FileIcon size={18} className="text-[#6B6560]" />
         </div>
         <div className="min-w-0">
           <p className="text-sm font-medium text-[#1A1A1A] truncate" title={file.fileName}>{file.fileName}</p>
-          <p className="text-xs text-[#6B6560]">{sizeMB} MB</p>
+          <p className="text-xs text-[#6B6560]">{sizeMB} MB · {previewKind === 'unsupported' ? 'Download only' : 'Preview available'}</p>
         </div>
       </div>
-      {loading ? (
-        <Loader size={16} className="text-[#6B6560] animate-spin" />
-      ) : (
-        <a 
-          href={downloadUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-[#7C3AED]/10 text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white transition"
-          title="Download"
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => onPreview(file)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#F5F2EE] text-[#1A1A1A] hover:bg-[#E8E4DD] transition"
+        >
+          <Eye size={14} />
+          Preview
+        </button>
+        <button
+          type="button"
+          onClick={() => onDownload(file)}
+          disabled={loading && !url}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#7C3AED]/10 text-[#7C3AED] hover:bg-[#7C3AED] hover:text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download size={14} />
-        </a>
-      )}
+          Download
+        </button>
+      </div>
     </div>
   )
 }
@@ -143,30 +242,10 @@ const isBulletLine = (line) => /^(\*|-|\+|\d+[.)])\s+/.test(line.trim())
 
 const stripBulletPrefix = (line) => line.trim().replace(/^(\*|-|\+|\d+[.)])\s+/, '').trim()
 
-const splitOutConclusions = (content = '') => {
-  const text = String(content || '').replace(/\r\n/g, '\n').trim()
-  if (!text) {
-    return { body: '', conclusions: '' }
-  }
-
-  const match = text.match(/(?:^|\n)\s*(CONCLUSIONS?(?:\s*\/\s*DECISIONS?)?|DECISIONS?)\s*:\s*([\s\S]*)/i)
-  if (!match) {
-    return { body: text, conclusions: '' }
-  }
-
-  const headingIndex = text.search(/(?:^|\n)\s*(CONCLUSIONS?(?:\s*\/\s*DECISIONS?)?|DECISIONS?)\s*:\s*/i)
-  const body = headingIndex > 0 ? text.slice(0, headingIndex).trim() : ''
-  const conclusions = match[2] ? match[2].trim() : ''
-
-  return {
-    body,
-    conclusions,
-  }
-}
-
-const parseSummarySections = (summaryText, conclusionsText) => {
+const parseSummarySections = (summaryText) => {
   const rawText = typeof summaryText === 'string' ? summaryText.replace(/\r\n/g, '\n').trim() : ''
   const sections = []
+  let conclusions = ''
 
   if (rawText) {
     const lines = rawText.split('\n')
@@ -176,10 +255,14 @@ const parseSummarySections = (summaryText, conclusionsText) => {
       if (!current) return
       const content = current.lines.join('\n').trim()
       if (content) {
-        sections.push({
-          title: current.title,
-          content,
-        })
+        if (current.title === 'Conclusions / Decisions') {
+          conclusions = content
+        } else {
+          sections.push({
+            title: current.title,
+            content,
+          })
+        }
       }
     }
 
@@ -208,7 +291,7 @@ const parseSummarySections = (summaryText, conclusionsText) => {
 
     pushCurrent()
 
-    if (!sections.length) {
+    if (!sections.length && !conclusions) {
       sections.push({
         title: 'Summary',
         content: rawText,
@@ -216,20 +299,7 @@ const parseSummarySections = (summaryText, conclusionsText) => {
     }
   }
 
-  if (conclusionsText && conclusionsText.trim()) {
-    const hasDedicatedConclusions = sections.some((section) =>
-      ['Conclusions / Decisions', 'Conclusions', 'Decisions'].includes(section.title)
-    )
-
-    if (!hasDedicatedConclusions) {
-      sections.push({
-        title: 'Conclusions / Decisions',
-        content: conclusionsText.replace(/\r\n/g, '\n').trim(),
-      })
-    }
-  }
-
-  return sections
+  return { sections, conclusions }
 }
 
 const SummaryBody = ({ content }) => {
@@ -296,6 +366,7 @@ export const MeetingSummary = () => {
   const [showTranscript, setShowTranscript] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [previewFile, setPreviewFile] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { document.title = 'Meeting Summary — IntellMeet' }, [])
@@ -303,40 +374,37 @@ export const MeetingSummary = () => {
   const summarySections = useMemo(() => {
     if (!summaryData) return []
 
-    const notesSplit = splitOutConclusions(summaryData.notesSummary || '')
+    const notesParsed = parseSummarySections(summaryData.notesSummary || '')
+    const notesBody = notesParsed.sections[0]?.content || ''
     const structuredSections = [
       summaryData.transcriptSummary ? { title: 'Transcript Summary', content: summaryData.transcriptSummary } : null,
       summaryData.chatSummary ? { title: 'Chat Summary', content: summaryData.chatSummary } : null,
-      notesSplit.body ? { title: 'Notes Summary', content: notesSplit.body } : null,
+      notesBody ? { title: 'Notes Summary', content: notesBody } : null,
     ].filter(Boolean)
 
-    const parsed = parseSummarySections(summaryData.summary, '')
+    if (structuredSections.length > 0) {
+      return structuredSections
+    }
+
+    const parsed = parseSummarySections(summaryData.summary || '')
     const preferredOrder = SECTION_TITLES
 
-    const parsedSections = parsed
+    return parsed.sections
       .filter((section) => section.title !== 'Action Items')
-      .filter((section) => !['Conclusions / Decisions', 'Conclusions', 'Decisions'].includes(section.title))
-
-    const merged = [...structuredSections]
-    parsedSections.forEach((section) => {
-      if (!merged.some((item) => normalizeSectionTitle(item.title) === normalizeSectionTitle(section.title))) {
-        merged.push(section)
-      }
-    })
-
-    return merged.sort((a, b) => {
-      const aIndex = preferredOrder.indexOf(normalizeSectionTitle(a.title))
-      const bIndex = preferredOrder.indexOf(normalizeSectionTitle(b.title))
-      const normalizedA = aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex
-      const normalizedB = bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex
-      return normalizedA - normalizedB
-    })
+      .sort((a, b) => {
+        const aIndex = preferredOrder.indexOf(normalizeSectionTitle(a.title))
+        const bIndex = preferredOrder.indexOf(normalizeSectionTitle(b.title))
+        const normalizedA = aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex
+        const normalizedB = bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex
+        return normalizedA - normalizedB
+      })
   }, [summaryData])
 
   const resolvedConclusions = useMemo(() => {
     if (!summaryData) return ''
-    const notesSplit = splitOutConclusions(summaryData.notesSummary || '')
-    return summaryData.conclusions || notesSplit.conclusions || ''
+    const notesParsed = parseSummarySections(summaryData.notesSummary || '')
+    const legacyParsed = parseSummarySections(summaryData.summary || '')
+    return summaryData.conclusions || notesParsed.conclusions || legacyParsed.conclusions || ''
   }, [summaryData])
 
   const summaryCopyText = useMemo(() => {
@@ -345,12 +413,10 @@ export const MeetingSummary = () => {
     const sections = summarySections.length
       ? summarySections
       : summaryData.summary
-        ? parseSummarySections(summaryData.summary, '')
+        ? parseSummarySections(summaryData.summary || '').sections
         : []
 
-    const parts = sections
-      .filter((section) => !['Conclusions / Decisions', 'Conclusions', 'Decisions'].includes(section.title))
-      .map((section) => `${section.title}\n${section.content.trim()}`)
+    const parts = sections.map((section) => `${section.title}\n${section.content.trim()}`)
 
     if (resolvedConclusions) {
       parts.push(`Conclusions / Decisions\n${resolvedConclusions.trim()}`)
@@ -358,6 +424,62 @@ export const MeetingSummary = () => {
 
     return parts.join('\n\n').trim()
   }, [summaryData, summarySections, resolvedConclusions])
+
+  const hasAutoSummaryContent = Boolean(
+    summaryData?.transcript?.length ||
+    summaryData?.chatSummary ||
+    summaryData?.notesSummary ||
+    summaryData?.summary
+  )
+  const isAutoGenerating = summaryData?.generationStatus === 'generating' ||
+    (summaryData?.generationStatus === 'pending' && Boolean(summaryData?.generationStartedAt) && hasAutoSummaryContent)
+  const shouldShowGenerateButton = !isAutoGenerating && (
+    summaryData?.generationStatus === 'failed' ||
+    !summaryData?.summary ||
+    summaryData.summary === 'No AI summary generated yet.' ||
+    summaryData.summary.includes('Failed to generate summary')
+  )
+
+  const getResolvedFileUrl = useCallback(async (file) => {
+    if (!file) return ''
+    if (file.url && (file.url.startsWith('http://') || file.url.startsWith('https://'))) {
+      return file.url
+    }
+    if (!file.s3Key) return ''
+
+    const res = await axios.get('/api/uploads/signed-url', {
+      params: { key: file.s3Key },
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    return res.data.url || ''
+  }, [token])
+
+  const handleDownloadFile = useCallback(async (file) => {
+    try {
+      const downloadUrl = await getResolvedFileUrl(file)
+      if (!downloadUrl) {
+        throw new Error('Unable to resolve download URL')
+      }
+
+      const response = await fetch(downloadUrl)
+      if (!response.ok) {
+        throw new Error('Failed to fetch file for download')
+      }
+
+      const blob = await response.blob()
+      const objectUrl = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = file.fileName || 'download'
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1000)
+    } catch (error) {
+      console.error('Failed to download file:', error)
+      alert('Failed to download file. Please try again.')
+    }
+  }, [getResolvedFileUrl])
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -383,12 +505,13 @@ export const MeetingSummary = () => {
 
     const poll = async () => {
       const data = await fetchSummary()
-      // Keep polling if transcript exists but summary hasn't been generated yet
-      if (data && 
-          (!data.summary || 
-           data.summary === 'No AI summary generated yet.' || 
-           data.summary.includes('Failed to generate summary')) && 
-          data.transcript?.length > 0) {
+      const shouldKeepPolling = data && (
+        data.generationStatus === 'generating' ||
+        (data.generationStatus === 'pending' && Boolean(data.generationStartedAt) && (data.transcript?.length > 0 || data.chatSummary || data.notesSummary)) ||
+        (!data.generationStatus && !data.summary && data.transcript?.length > 0)
+      )
+
+      if (shouldKeepPolling) {
         if (!pollingInterval) {
           pollingInterval = setInterval(poll, 3000);
         }
@@ -523,7 +646,7 @@ export const MeetingSummary = () => {
                   {copied ? 'Copied' : 'Copy summary'}
                 </button>
               </div>
-              {isGenerating ? (
+              {isGenerating || isAutoGenerating ? (
                 <div className="pt-3 pb-2 space-y-3">
                   <div className="h-4 bg-gray-200 rounded animate-pulse w-full"></div>
                   <div className="h-4 bg-gray-200 rounded animate-pulse w-5/6"></div>
@@ -547,17 +670,13 @@ export const MeetingSummary = () => {
                     ))
                   ) : (
                     <p className="text-sm text-[#6B6560] leading-relaxed whitespace-pre-wrap">
-                      {summaryData.summary}
+                      {summaryData.summary || 'No AI summary generated yet.'}
                     </p>
                   )}
                 </div>
               )}
               
-              {!isGenerating && 
-               (!summaryData.summary || 
-                summaryData.summary === 'No AI summary generated yet.' || 
-                summaryData.summary.includes('Failed to generate summary')) && 
-               summaryData.transcript?.length > 0 && (
+              {shouldShowGenerateButton && (
                 <div className="mt-4">
                   <button 
                     onClick={handleGenerateSummary} 
@@ -567,6 +686,12 @@ export const MeetingSummary = () => {
                     <Sparkles size={16} /> Generate AI Summary
                   </button>
                 </div>
+              )}
+
+              {summaryData.generationStatus === 'failed' && summaryData.generationError && (
+                <p className="mt-3 text-xs text-red-600">
+                  {summaryData.generationError}
+                </p>
               )}
 
               <div className="bg-[#7C3AED]/8 text-[#7C3AED] text-xs px-2.5 py-1 rounded-full inline-flex items-center gap-1 mt-4">
@@ -710,7 +835,12 @@ export const MeetingSummary = () => {
                 </div>
                 <div className="space-y-2">
                   {summaryData.attachments.map((file, idx) => (
-                    <SharedFile key={idx} file={file} />
+                    <SharedFile
+                      key={idx}
+                      file={file}
+                      onPreview={setPreviewFile}
+                      onDownload={handleDownloadFile}
+                    />
                   ))}
                 </div>
               </div>
@@ -763,6 +893,13 @@ export const MeetingSummary = () => {
             </button>
           </div>
         </div>
+        {previewFile && (
+          <FilePreviewModal
+            file={previewFile}
+            onClose={() => setPreviewFile(null)}
+            onDownload={handleDownloadFile}
+          />
+        )}
         </>
         )}
       </div>

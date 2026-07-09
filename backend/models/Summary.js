@@ -12,6 +12,10 @@ const summarySchema = new mongoose.Schema({
   chatSummary: { type: String },
   notesSummary: { type: String },
   conclusions: { type: String },
+  generationStatus: { type: String, enum: ['pending', 'generating', 'completed', 'failed'], default: 'pending' },
+  generationError: { type: String, default: '' },
+  generationStartedAt: { type: Date },
+  generatedAt: { type: Date },
   actionItems: [{
     id: Number,
     task: String,

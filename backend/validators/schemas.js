@@ -177,6 +177,8 @@ export const createSummarySchema = z.object({
   chatSummary: z.string().optional(),
   notesSummary: z.string().optional(),
   conclusions: z.string().optional(),
+  generationStatus: z.enum(['pending', 'generating', 'completed', 'failed']).optional(),
+  generationError: z.string().optional(),
   actionItems: z.array(z.object({
     id: z.number().optional(),
     task: z.string(),
