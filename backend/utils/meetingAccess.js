@@ -97,8 +97,10 @@ export const canUserAccessMeeting = async (meeting, userId) => {
     }
   }
 
+  // Personal workspace meetings are shareable by link, so any authenticated
+  // user can join once they have the room ID.
   if (!meeting.organizationId) {
-    return false;
+    return true;
   }
 
   if (accessMode === 'organization') {
