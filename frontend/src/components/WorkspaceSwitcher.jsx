@@ -51,7 +51,7 @@ export const WorkspaceSwitcher = () => {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#E8E4DD] bg-white hover:bg-[#F5F2EE] transition-colors"
+        className="relative flex items-center gap-2 rounded-lg border border-[#E8E4DD] bg-white px-3 py-1.5 transition-colors hover:bg-[#F5F2EE]"
       >
         {activeWorkspace === 'personal' ? (
           <User size={16} className="text-[#6B6560]" />
@@ -65,7 +65,7 @@ export const WorkspaceSwitcher = () => {
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-[#E8E4DD] rounded-xl shadow-lg z-50 overflow-hidden py-1">
+        <div className="absolute left-0 top-full z-[60] mt-1 w-56 overflow-hidden rounded-xl border border-[#E8E4DD] bg-white py-1 shadow-lg">
           <div className="px-3 py-2 text-xs font-semibold text-[#6B6560] uppercase tracking-wider">
             Workspaces
           </div>

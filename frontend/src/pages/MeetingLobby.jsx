@@ -168,174 +168,192 @@ export const MeetingLobby = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#FAF9F7] flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#E8E4DD] border-t-[#7C3AED] mx-auto"></div>
-          <p className="text-sm text-[#6B6560] mt-3">Setting up your camera...</p>
+      <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-[#FAF9F7] to-[#F3F0FF] text-[#1A1A1A]">
+        <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+          <div className="absolute left-[-3rem] top-12 h-[20rem] w-[20rem] rounded-full bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-45" />
+          <div className="absolute bottom-[-2rem] right-[-2rem] h-[18rem] w-[24rem] rounded-[45%] bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-40" />
+        </div>
+        <div className="relative z-10 flex min-h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-[#E8E4DD] border-t-[#7C3AED]"></div>
+            <p className="mt-3 text-sm text-[#6B6560]">Setting up your camera...</p>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7]">
-      <div className="border-b border-[#E8E4DD] bg-[#FAF9F7] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-[#F5F2EE] border border-[#E8E4DD] rounded-full p-1 pl-3">
-            <span className="text-[#6B6560] text-xs font-mono">{meetingId}</span>
-            <button
-              onClick={handleCopyLink}
-              className="w-6 h-6 rounded-full bg-white flex items-center justify-center text-[#6B6560] shadow-sm hover:text-[#7C3AED] hover:bg-[#7C3AED]/10 transition"
-              title="Copy link"
-            >
-              {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-            </button>
-          </div>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-1.5 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
-          >
-            <ArrowLeft size={16} />
-            Back to dashboard
-          </button>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-[#FAF9F7] to-[#F3F0FF] text-[#1A1A1A]">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute left-[-3rem] top-12 h-[24rem] w-[24rem] rounded-full bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-45" />
+        <div className="absolute right-[-2rem] top-[-2rem] h-[20rem] w-[26rem] rounded-[45%] bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-40" />
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        <h1 className="text-2xl font-semibold text-[#1A1A1A] mb-1">Ready to join?</h1>
-        <p className="text-sm text-[#6B6560] mb-8">
-          Check your camera and microphone before joining
-        </p>
-
-        <div className="grid lg:grid-cols-5 gap-6">
-          <div className="lg:col-span-3">
-            <div className="bg-[#1A1A1A] rounded-2xl overflow-hidden relative aspect-video">
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                className="w-full h-full object-cover"
-                style={{ transform: 'scaleX(-1)' }}
-              />
-
-              {!isVideoEnabled && (
-                <div className="absolute inset-0 bg-[#1A1A1A] flex items-center justify-center">
-                  <div className="w-20 h-20 rounded-full bg-[#7C3AED]/20 text-[#7C3AED] text-3xl font-semibold flex items-center justify-center">
-                    {participantInitial}
-                  </div>
-                </div>
-              )}
-
-              <div className="absolute top-3 right-3 flex gap-2">
-                <div className="bg-black/40 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${isAudioEnabled ? 'bg-green-400' : 'bg-red-400'}`}
-                  />
-                  {isAudioEnabled ? 'Audio On' : 'Audio Off'}
-                </div>
-                <div className="bg-black/40 backdrop-blur-sm text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5">
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${isVideoEnabled ? 'bg-green-400' : 'bg-red-400'}`}
-                  />
-                  {isVideoEnabled ? 'Video On' : 'Video Off'}
-                </div>
-              </div>
-
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-4 pb-4 pt-8 flex items-center justify-center gap-3">
-                <button
-                  onClick={toggleAudio}
-                  className={`w-11 h-11 rounded-full flex items-center justify-center transition ${
-                    isAudioEnabled
-                      ? 'bg-white/20 backdrop-blur-sm text-white hover:bg-white/30'
-                      : 'bg-red-500/80 hover:bg-red-600 text-white'
-                  }`}
-                >
-                  {isAudioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
-                </button>
-                <button
-                  onClick={toggleVideo}
-                  className={`w-11 h-11 rounded-full flex items-center justify-center transition ${
-                    isVideoEnabled
-                      ? 'bg-white/20 backdrop-blur-sm text-white hover:bg-white/30'
-                      : 'bg-red-500/80 hover:bg-red-600 text-white'
-                  }`}
-                >
-                  {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
-                </button>
-              </div>
+      <div className="relative z-10">
+        <div className="sticky top-0 z-50 border-b border-white/10 bg-white/60 px-6 py-4 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold text-[#1A1A1A]">
+              <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
             </div>
-
-            {error && (
-              <div className="mt-2 text-sm text-red-500 flex items-center gap-1.5">
-                ⚠️ {error}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1 rounded-full border border-[#E8E4DD] bg-white/80 p-1 pl-3 shadow-sm">
+                <span className="text-xs font-mono text-[#6B6560]">{meetingId}</span>
+                <button
+                  onClick={handleCopyLink}
+                  className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[#6B6560] shadow-sm transition hover:bg-[#7C3AED]/10 hover:text-[#7C3AED]"
+                  title="Copy link"
+                  aria-label="Copy meeting link"
+                >
+                  {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                </button>
               </div>
-            )}
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="flex items-center gap-1.5 text-sm text-[#6B6560] transition hover:text-[#1A1A1A]"
+              >
+                <ArrowLeft size={16} />
+                Back to dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <div className="mb-8">
+            <h1 className="mb-1 text-2xl font-semibold text-[#1A1A1A]">Ready to join?</h1>
+            <p className="text-sm text-[#6B6560]">Check your camera and microphone before joining</p>
           </div>
 
-          <div className="lg:col-span-2 space-y-4">
-            <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-              <label className="text-xs font-medium text-[#6B6560] uppercase tracking-wider mb-2 inline-block">
-                Your name
-              </label>
-              <input
-                type="text"
-                value={participantName}
-                onChange={(e) => setParticipantName(e.target.value)}
-                placeholder="Enter your display name"
-                className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-4 py-2.5 text-sm text-[#1A1A1A] placeholder-[#C4BDB5] focus:outline-none focus:border-[#7C3AED] transition"
-              />
-            </div>
+          <div className="grid gap-6 lg:grid-cols-5">
+            <div className="lg:col-span-3">
+              <div className="relative aspect-video overflow-hidden rounded-3xl border border-[#E8E4DD] bg-[#1C1C1E] shadow-[0_20px_45px_-30px_rgba(15,23,42,0.35)]">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="h-full w-full object-cover"
+                  style={{ transform: 'scaleX(-1)' }}
+                />
 
-            <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5 space-y-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1.5 text-xs font-medium text-[#6B6560] uppercase tracking-wider">
-                  <Mic size={13} className="text-[#6B6560]" />
-                  Microphone
+                {!isVideoEnabled && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[#1C1C1E]">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#7C3AED]/20 text-3xl font-semibold text-[#7C3AED]">
+                      {participantInitial}
+                    </div>
+                  </div>
+                )}
+
+                <div className="absolute right-3 top-3 flex gap-2">
+                  <div className="flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-xs text-white backdrop-blur-sm">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${isAudioEnabled ? 'bg-green-400' : 'bg-red-400'}`}
+                    />
+                    {isAudioEnabled ? 'Audio On' : 'Audio Off'}
+                  </div>
+                  <div className="flex items-center gap-1.5 rounded-full bg-black/40 px-2.5 py-1 text-xs text-white backdrop-blur-sm">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${isVideoEnabled ? 'bg-green-400' : 'bg-red-400'}`}
+                    />
+                    {isVideoEnabled ? 'Video On' : 'Video Off'}
+                  </div>
                 </div>
-                <select
-                  value={selectedAudio}
-                  onChange={(e) => handleDeviceSwitch(e.target.value, 'audio')}
-                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-3 py-2 text-sm text-[#1A1A1A] focus:outline-none focus:border-[#7C3AED] transition"
-                >
-                  {audioDevices.map((device) => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Microphone ${device.deviceId.slice(0, 5)}`}
-                    </option>
-                  ))}
-                </select>
+
+                <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-3 bg-gradient-to-t from-black/60 to-transparent px-4 pb-4 pt-8">
+                  <button
+                    onClick={toggleAudio}
+                    className={`flex h-11 w-11 items-center justify-center rounded-full transition ${
+                      isAudioEnabled
+                        ? 'bg-white/20 text-white backdrop-blur-sm hover:bg-white/30'
+                        : 'bg-red-50 text-red-500 hover:bg-red-100'
+                    }`}
+                    aria-label={isAudioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+                  >
+                    {isAudioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
+                  </button>
+                  <button
+                    onClick={toggleVideo}
+                    className={`flex h-11 w-11 items-center justify-center rounded-full transition ${
+                      isVideoEnabled
+                        ? 'bg-white/20 text-white backdrop-blur-sm hover:bg-white/30'
+                        : 'bg-red-50 text-red-500 hover:bg-red-100'
+                    }`}
+                    aria-label={isVideoEnabled ? 'Turn off camera' : 'Turn on camera'}
+                  >
+                    {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <div className="flex items-center gap-2 mb-1.5 text-xs font-medium text-[#6B6560] uppercase tracking-wider">
-                  <Video size={13} className="text-[#6B6560]" />
-                  Camera
+              {error && (
+                <div className="mt-2 flex items-center gap-1.5 text-sm text-red-500">
+                  ⚠️ {error}
                 </div>
-                <select
-                  value={selectedVideo}
-                  onChange={(e) => handleDeviceSwitch(e.target.value, 'video')}
-                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl px-3 py-2 text-sm text-[#1A1A1A] focus:outline-none focus:border-[#7C3AED] transition"
-                >
-                  {videoDevices.map((device) => (
-                    <option key={device.deviceId} value={device.deviceId}>
-                      {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              )}
             </div>
 
-            <button
-              onClick={handleJoinMeeting}
-              disabled={!participantName.trim()}
-              className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-3 text-sm font-semibold transition flex items-center justify-center gap-2"
-            >
-              <Play size={16} />
-              Join Meeting
-            </button>
+            <div className="space-y-4 lg:col-span-2">
+              <div className="rounded-2xl border border-[#E8E4DD] bg-white/90 p-5 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)] backdrop-blur-sm">
+                <label className="mb-2 inline-block text-xs font-medium uppercase tracking-wider text-[#6B6560]">
+                  Your name
+                </label>
+                <input
+                  type="text"
+                  value={participantName}
+                  onChange={(e) => setParticipantName(e.target.value)}
+                  placeholder="Enter your display name"
+                  className="w-full rounded-xl border border-[#E8E4DD] bg-[#FAF9F7] px-4 py-2.5 text-sm text-[#1A1A1A] placeholder-[#C4BDB5] transition focus:border-[#7C3AED] focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-4 rounded-2xl border border-[#E8E4DD] bg-white/90 p-5 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)] backdrop-blur-sm">
+                <div>
+                  <div className="mb-1.5 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-[#6B6560]">
+                    <Mic size={13} className="text-[#6B6560]" />
+                    Microphone
+                  </div>
+                  <select
+                    value={selectedAudio}
+                    onChange={(e) => handleDeviceSwitch(e.target.value, 'audio')}
+                    className="w-full rounded-xl border border-[#E8E4DD] bg-[#FAF9F7] px-3 py-2 text-sm text-[#1A1A1A] transition focus:border-[#7C3AED] focus:outline-none"
+                  >
+                    {audioDevices.map((device) => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label || `Microphone ${device.deviceId.slice(0, 5)}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="mb-1.5 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-[#6B6560]">
+                    <Video size={13} className="text-[#6B6560]" />
+                    Camera
+                  </div>
+                  <select
+                    value={selectedVideo}
+                    onChange={(e) => handleDeviceSwitch(e.target.value, 'video')}
+                    className="w-full rounded-xl border border-[#E8E4DD] bg-[#FAF9F7] px-3 py-2 text-sm text-[#1A1A1A] transition focus:border-[#7C3AED] focus:outline-none"
+                  >
+                    {videoDevices.map((device) => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <button
+                onClick={handleJoinMeeting}
+                disabled={!participantName.trim()}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#6D28D9] py-3 text-sm font-semibold text-white transition hover:from-[#6D28D9] hover:to-[#5B21B6] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Play size={16} />
+                Join Meeting
+              </button>
+            </div>
           </div>
         </div>
       </div>

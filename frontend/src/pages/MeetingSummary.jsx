@@ -581,31 +581,40 @@ export const MeetingSummary = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7]">
-      <div className="border-b border-[#E8E4DD] bg-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={fetchSummary}
-            className="flex items-center gap-1.5 text-sm text-[#6B6560] hover:text-[#7C3AED] transition"
-            title="Refresh summary data (fetches latest recordings/attachments)"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-          <button
-            onClick={handleBack}
-            className="flex items-center gap-2 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
-          >
-            <ArrowLeft size={16} />
-            Back to dashboard
-          </button>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-[#FAF9F7] to-[#F3F0FF] text-[#1A1A1A]">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute left-[-3rem] top-12 h-[24rem] w-[24rem] rounded-full bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-45" />
+        <div className="absolute right-[-2rem] top-[-2rem] h-[20rem] w-[28rem] rounded-[45%] bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-40" />
+        <div className="absolute bottom-0 right-[8%] h-[18rem] w-[20rem] rounded-[40%] bg-gradient-to-br from-[#93C5FD] via-[#BFDBFE] to-white blur-3xl opacity-40" />
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 pt-6 pb-10">
+      <div className="relative z-10">
+        <div className="sticky top-0 z-50 border-b border-white/10 bg-white/60 px-6 py-4 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold text-[#1A1A1A]">
+              <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={fetchSummary}
+                className="flex items-center gap-1.5 text-sm text-[#6B6560] transition hover:text-[#7C3AED]"
+                title="Refresh summary data (fetches latest recordings/attachments)"
+              >
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+              <button
+                onClick={handleBack}
+                className="flex items-center gap-2 text-sm text-[#6B6560] transition hover:text-[#1A1A1A]"
+              >
+                <ArrowLeft size={16} />
+                Back to dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-4xl px-6 pt-6 pb-10">
         {loading || !summaryData ? (
           <div className="flex items-center justify-center py-20 text-[#6B6560]">
             <Loader className="animate-spin mr-2" />
@@ -613,30 +622,32 @@ export const MeetingSummary = () => {
           </div>
         ) : (
           <>
-            <div className="pb-6 border-b border-[#E8E4DD]">
+            <div className="rounded-3xl border border-[#E8E4DD] bg-white/80 px-6 py-5 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)] backdrop-blur-sm">
               <h1 className="text-2xl font-semibold text-[#1A1A1A]">{summaryData.title}</h1>
-          <div className="flex flex-wrap gap-4 mt-3">
-            <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
-              {formatMeetingDate(summaryData.date)}
-            </span>
-            <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
-              <Clock size={14} />
-              {summaryData.duration || '0 minutes'}
-            </span>
-            <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5">
-              <Users size={14} />
-              {summaryData.participants?.length || 0} participants
-            </span>
-          </div>
-        </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <span className="flex items-center gap-1.5 rounded-full border border-[#E8E4DD] bg-white/90 px-3 py-1.5 text-xs text-[#6B6560]">
+                  {formatMeetingDate(summaryData.date)}
+                </span>
+                <span className="flex items-center gap-1.5 rounded-full border border-[#E8E4DD] bg-white/90 px-3 py-1.5 text-xs text-[#6B6560]">
+                  <Clock size={14} />
+                  {summaryData.duration || '0 minutes'}
+                </span>
+                <span className="flex items-center gap-1.5 rounded-full border border-[#E8E4DD] bg-white/90 px-3 py-1.5 text-xs text-[#6B6560]">
+                  <Users size={14} />
+                  {summaryData.participants?.length || 0} participants
+                </span>
+              </div>
+            </div>
 
         <div className="grid grid-cols-3 gap-5 mt-6 items-start">
           <div className="col-span-2 space-y-5">
-            <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-              <div className="flex items-center justify-between gap-4 pb-3 border-b border-[#E8E4DD] mb-0">
+            <div className="rounded-2xl border border-[#E8E4DD] bg-white/90 p-5 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)] backdrop-blur-sm">
+              <div className="mb-0 flex items-center justify-between gap-4 border-b border-[#E8E4DD] pb-3">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[#1A1A1A]">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#7C3AED]/10 to-[#2563EB]/10">
+                    <Sparkles size={16} className="text-[#7C3AED]" />
+                  </div>
                   <span>AI Summary</span>
-                  <FileText size={16} className="text-[#7C3AED]" />
                 </div>
                 <button
                   onClick={handleCopy}
@@ -681,9 +692,19 @@ export const MeetingSummary = () => {
                   <button 
                     onClick={handleGenerateSummary} 
                     disabled={isGenerating}
-                    className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                    className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    <Sparkles size={16} /> Generate AI Summary
+                    {isGenerating ? (
+                      <>
+                        <RefreshCw size={16} className="animate-spin" />
+                        Generating summary...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={16} />
+                        Generate AI Summary
+                      </>
+                    )}
                   </button>
                 </div>
               )}
@@ -709,8 +730,8 @@ export const MeetingSummary = () => {
               </div>
             )}
 
-            <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-              <div className="flex items-center justify-between gap-3 pb-3 border-b border-[#E8E4DD]">
+            <div className="rounded-2xl border border-[#E8E4DD] bg-white/90 p-5 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)] backdrop-blur-sm">
+              <div className="flex items-center justify-between gap-3 border-b border-[#E8E4DD] pb-3">
                 <div className="flex items-center gap-2 text-sm font-semibold text-[#1A1A1A]">
                   <CheckSquare size={16} className="text-[#7C3AED]" />
                   Action Items
@@ -778,11 +799,11 @@ export const MeetingSummary = () => {
               </div>
             )}
 
-            <div className="bg-white border border-[#E8E4DD] rounded-2xl overflow-hidden">
+            <div className="overflow-hidden rounded-2xl border border-[#E8E4DD] bg-white/90 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)] backdrop-blur-sm">
               <button
                 type="button"
                 onClick={() => setShowTranscript((prev) => !prev)}
-                className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#F5F2EE] transition"
+                className="flex w-full items-center justify-between px-5 py-4 transition hover:bg-[#F5F2EE]"
               >
                 <span className="text-sm font-semibold text-[#1A1A1A]">Transcript</span>
                 {showTranscript ? (
@@ -792,7 +813,7 @@ export const MeetingSummary = () => {
                 )}
               </button>
               {showTranscript && (
-                <div className="px-6 pb-6 space-y-4">
+                <div className="space-y-4 px-6 pb-6 font-mono text-sm text-[#1A1A1A]">
                   {summaryData.transcript?.map((line, index) => {
                     const separatorIndex = line.indexOf(':')
                     const speaker = separatorIndex !== -1 ? line.substring(0, separatorIndex) : 'Unknown'
@@ -904,5 +925,6 @@ export const MeetingSummary = () => {
         )}
       </div>
     </div>
+  </div>
   )
 }

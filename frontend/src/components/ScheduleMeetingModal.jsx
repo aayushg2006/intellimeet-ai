@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { X, Calendar, Clock, Tag, Check } from 'lucide-react';
+import { Button } from '../components/Button';
+import { X, Calendar, Clock, Tag, Check, Video } from 'lucide-react';
 
 const meetingTypeHelp = {
   internal: 'Internal Sync: internal org/team coordination.',
@@ -162,43 +163,43 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
   const displayTeams = isOrgAdmin ? teams : ownedTeams;
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white border border-[#E8E4DD] rounded-2xl w-full max-w-2xl p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-start gap-4 mb-5">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-[#E8E4DD] bg-white p-6 shadow-lg">
+        <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-[#1A1A1A]">
               {isInstant ? 'Start Instant Meeting' : 'Schedule Meeting'}
             </h2>
-            <p className="text-sm text-[#6B6560] mt-1">
+            <p className="mt-1 text-sm text-[#6B6560]">
               Meeting type describes the topic. Access scope controls who can join.
             </p>
           </div>
-          <button onClick={onClose} className="text-[#6B6560] hover:text-[#1A1A1A]">
+          <button type="button" onClick={onClose} className="text-[#6B6560] transition hover:text-[#1A1A1A]" aria-label="Close schedule meeting modal">
             <X size={20} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Meeting Title</label>
+            <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Meeting Title</label>
             <input
               type="text"
               required
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              className="w-full bg-[#FAF9F7] border border-[#E8E4DD] text-[#1A1A1A] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#7C3AED]"
+              className="w-full rounded-xl border border-[#E8E4DD] bg-[#FAF9F7] px-4 py-2.5 text-sm text-[#1A1A1A] focus:border-[#7C3AED] focus:outline-none"
               placeholder="e.g. Weekly Sync"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Meeting Type</label>
+            <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Meeting Type</label>
             <div className="relative">
               <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6B6560]" size={16} />
               <select
                 value={formData.meetingType}
                 onChange={(e) => setFormData({ ...formData, meetingType: e.target.value })}
-                className="w-full bg-[#FAF9F7] border border-[#E8E4DD] text-[#1A1A1A] rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#7C3AED] appearance-none"
+                className="w-full appearance-none rounded-xl border border-[#E8E4DD] bg-[#FAF9F7] py-2.5 pl-10 pr-4 text-sm text-[#1A1A1A] focus:border-[#7C3AED] focus:outline-none"
               >
                 <option value="internal">Internal Sync</option>
                 <option value="external">External / Client</option>
@@ -208,12 +209,12 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
                 <option value="other">Other</option>
               </select>
             </div>
-            <p className="mt-2 text-xs text-[#6B6560]">{selectedTypeHelp}</p>
+            <p className="mt-1.5 text-xs text-[#6B6560]">{selectedTypeHelp}</p>
           </div>
 
           {!isInstant && activeWorkspace !== 'personal' && canShowRestrictedOptions && (
             <div>
-              <label className="block text-sm font-medium text-[#1A1A1A] mb-2">Access Scope</label>
+              <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Access Scope</label>
               <div className="grid gap-3 md:grid-cols-2">
                 {accessOptions.map((option) => (
                   <button
@@ -249,7 +250,7 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
 
           {!isInstant && activeWorkspace !== 'personal' && (formData.accessMode === 'teams' || formData.accessMode === 'mixed') && (
             <div>
-              <label className="block text-sm font-medium text-[#1A1A1A] mb-2">Select Teams</label>
+              <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Select Teams</label>
               <div className="max-h-56 overflow-y-auto border border-[#E8E4DD] rounded-2xl p-3 bg-[#FAF9F7] space-y-2">
                 {displayTeams.length === 0 ? (
                   <div className="text-sm text-[#6B6560] py-4 text-center">No teams available.</div>
@@ -285,7 +286,7 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
 
           {!isInstant && activeWorkspace !== 'personal' && (formData.accessMode === 'people' || formData.accessMode === 'mixed') && (
             <div>
-              <label className="block text-sm font-medium text-[#1A1A1A] mb-2">Select People</label>
+              <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Select People</label>
               <div className="max-h-56 overflow-y-auto border border-[#E8E4DD] rounded-2xl p-3 bg-[#FAF9F7] space-y-2">
                 {members.length === 0 ? (
                   <div className="text-sm text-[#6B6560] py-4 text-center">No organization members found.</div>
@@ -323,11 +324,11 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
           )}
 
           <div>
-            <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Description (Optional)</label>
+            <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Description (Optional)</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full bg-[#FAF9F7] border border-[#E8E4DD] text-[#1A1A1A] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#7C3AED] resize-none h-20"
+              className="h-20 w-full resize-none rounded-xl border border-[#E8E4DD] bg-[#FAF9F7] px-4 py-2.5 text-sm text-[#1A1A1A] focus:border-[#7C3AED] focus:outline-none"
               placeholder="What is this meeting about?"
             />
           </div>
@@ -335,7 +336,7 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
           {!isInstant && (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Date</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Date</label>
                 <div className="relative">
                   <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6B6560]" size={16} />
                   <input
@@ -348,7 +349,7 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-[#1A1A1A] mb-1">Time</label>
+                <label className="mb-1.5 block text-sm font-medium text-[#1A1A1A]">Time</label>
                 <div className="relative">
                   <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6B6560]" size={16} />
                   <input
@@ -364,26 +365,30 @@ export const ScheduleMeetingModal = ({ isOpen, onClose, onCreated, mode = 'sched
           )}
 
           {isInstant && (
-            <div className="p-3 bg-[#F5F2EE] rounded-xl border border-[#E8E4DD] text-sm text-[#6B6560]">
+            <div className="rounded-xl border border-[#E8E4DD] bg-[#7C3AED]/5 p-3 text-xs text-[#6B6560]">
               Start the meeting now with the title and type above, then you’ll enter the lobby to check your camera and microphone.
             </div>
           )}
 
-          <div className="pt-4 flex gap-3">
-            <button
+          <div className="flex gap-3 pt-2">
+            <Button
               type="button"
+              label="Cancel"
+              icon={X}
               onClick={onClose}
-              className="flex-1 border border-[#E8E4DD] text-[#6B6560] hover:bg-[#F5F2EE] rounded-xl py-2.5 text-sm font-medium transition"
-            >
-              Cancel
-            </button>
-            <button
+              variant="ghost"
+              iconClassName="bg-red-50"
+              iconColorClassName="text-red-500"
+              className="flex-1"
+            />
+            <Button
               type="submit"
-              disabled={loading}
-              className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-60 text-white rounded-xl py-2.5 text-sm font-medium transition"
-            >
-              {loading ? 'Saving...' : isInstant ? 'Start Meeting' : 'Schedule Meeting'}
-            </button>
+              label={loading ? 'Saving...' : isInstant ? 'Start Meeting' : 'Schedule Meeting'}
+              icon={Video}
+              loading={loading}
+              variant="primary"
+              className="flex-1"
+            />
           </div>
         </form>
       </div>

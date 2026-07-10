@@ -62,66 +62,72 @@ export const DashboardPage = () => {
 
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7] text-[#1A1A1A]">
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        <nav className="bg-[#FAF9F7] border-b border-[#E8E4DD] sticky top-0 z-10">
-          <div className="flex items-center justify-between py-4">
-            <div className="flex items-center gap-2">
-              <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto mr-4" />
-              <WorkspaceSwitcher />
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => navigate('/workspace')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-[#6B6560] hover:text-[#1A1A1A] hover:bg-[#F5F2EE] transition-colors"
-              >
-                <LayoutGrid size={15} />
-                Workspace
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/analytics')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-[#6B6560] hover:text-[#1A1A1A] hover:bg-[#F5F2EE] transition-colors"
-              >
-                <BarChart2 size={15} />
-                Analytics
-              </button>
-            </div>
-            <div className="flex items-center gap-3">
-              {resolvedAvatarUrl ? (
-                <img src={resolvedAvatarUrl} alt={user.name} className="w-8 h-8 rounded-full object-cover bg-white" />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-[#7C3AED] text-white text-sm font-medium flex items-center justify-center">
-                  {user?.name
-                    ? user.name
-                        .split(' ')
-                        .map((part) => part[0])
-                        .join('')
-                        .toUpperCase()
-                    : 'U'}
-                </div>
-              )}
-              <div className="text-sm text-[#6B6560]">{user?.name || 'User'}</div>
-              <button
-                onClick={() => navigate('/settings')}
-                title="Settings"
-                className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-[#6B6560] hover:text-[#7C3AED] transition-colors"
-              >
-                <Settings size={16} />
-              </button>
-              <button
-                onClick={handleLogout}
-                title="Logout"
-                className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-[#6B6560] hover:text-red-500 transition-colors"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          </div>
-        </nav>
+    <div className="relative min-h-screen overflow-x-hidden overflow-y-visible bg-gradient-to-br from-white via-[#FAF9F7] to-[#F3F0FF] text-[#1A1A1A]">
+      <div className="pointer-events-none absolute inset-0 z-0 h-full w-full overflow-hidden">
+        <div className="absolute -left-16 top-16 h-[34rem] w-[34rem] rounded-full bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-2xl opacity-70" />
+        <div className="absolute right-[-4rem] top-[-2rem] h-[30rem] w-[36rem] rounded-[45%] bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-2xl opacity-65" />
+        <div className="absolute bottom-0 right-[-2rem] h-[24rem] w-[30rem] rounded-[40%] bg-gradient-to-br from-[#93C5FD] via-[#BFDBFE] to-white blur-2xl opacity-60" />
+      </div>
 
-        <header className="mt-10 mb-8">
+      <nav className="sticky top-0 z-50 w-full overflow-visible border-b border-white/10 bg-white/40 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-2">
+            <img src="/logo.png" alt="IntellMeet" className="mr-4 h-8 w-auto" />
+            <WorkspaceSwitcher />
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => navigate('/workspace')}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[#6B6560] transition-colors hover:bg-[#F5F2EE] hover:text-[#1A1A1A]"
+            >
+              <LayoutGrid size={15} />
+              Workspace
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/analytics')}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[#6B6560] transition-colors hover:bg-[#F5F2EE] hover:text-[#1A1A1A]"
+            >
+              <BarChart2 size={15} />
+              Analytics
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            {resolvedAvatarUrl ? (
+              <img src={resolvedAvatarUrl} alt={user.name} className="h-8 w-8 rounded-full object-cover bg-white" />
+            ) : (
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#7C3AED] text-sm font-medium text-white">
+                {user?.name
+                  ? user.name
+                      .split(' ')
+                      .map((part) => part[0])
+                      .join('')
+                      .toUpperCase()
+                  : 'U'}
+              </div>
+            )}
+            <div className="text-sm text-[#6B6560]">{user?.name || 'User'}</div>
+            <button
+              onClick={() => navigate('/settings')}
+              title="Settings"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#6B6560] transition-colors hover:text-[#7C3AED]"
+            >
+              <Settings size={16} />
+            </button>
+            <button
+              onClick={handleLogout}
+              title="Logout"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#6B6560] transition-colors hover:text-red-500"
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div className="relative z-10 mx-auto max-w-6xl px-6 py-8">
+        <header className="mb-8 mt-2">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm text-[#6B6560] mb-1">
@@ -141,50 +147,47 @@ export const DashboardPage = () => {
         <div className="grid grid-cols-3 gap-4 mb-8">
           <button
             onClick={() => setShowInstantModal(true)}
-            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+            className="group relative rounded-2xl bg-gradient-to-br from-[#7C3AED] to-[#4C1D95] p-6 text-left text-white shadow-lg shadow-purple-900/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-purple-900/30"
           >
-            <div className="w-10 h-10 bg-[#7C3AED]/8 rounded-xl flex items-center justify-center mb-4">
-              <Video size={20} className="text-[#7C3AED]" />
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-white/15">
+              <Video size={20} className="text-white" />
             </div>
-            <div className="text-[#1A1A1A] font-semibold text-lg">Instant Meeting</div>
-            <div className="text-sm text-[#6B6560] mt-1">Start right now</div>
-            <ArrowUpRight size={15} className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors" />
+            <div className="text-lg font-semibold text-white">Instant Meeting</div>
+            <div className="mt-1 text-sm text-white/70">Start right now</div>
+            <ArrowUpRight size={15} className="absolute right-5 top-5 text-white/60 transition-colors group-hover:text-white/90" />
           </button>
 
           <button
             onClick={() => setShowScheduleModal(true)}
-            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+            className="group relative rounded-2xl bg-gradient-to-br from-[#2563EB] to-[#1E3A8A] p-6 text-left text-white shadow-lg shadow-blue-900/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-900/30"
           >
-            <div className="w-10 h-10 bg-[#10B981]/10 rounded-xl flex items-center justify-center mb-4">
-              <Plus size={20} className="text-[#10B981]" />
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-white/15">
+              <Plus size={20} className="text-white" />
             </div>
-            <div className="text-[#1A1A1A] font-semibold text-lg">Schedule Meeting</div>
-            <div className="text-sm text-[#6B6560] mt-1">Plan for later</div>
-            <ArrowUpRight size={15} className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors" />
+            <div className="text-lg font-semibold text-white">Schedule Meeting</div>
+            <div className="mt-1 text-sm text-white/70">Plan for later</div>
+            <ArrowUpRight size={15} className="absolute right-5 top-5 text-white/60 transition-colors group-hover:text-white/90" />
           </button>
 
           <button
             onClick={() => setShowJoinModal(true)}
-            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+            className="group relative rounded-2xl bg-gradient-to-br from-[#6D28D9] to-[#2563EB] p-6 text-left text-white shadow-lg shadow-indigo-900/20 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-indigo-900/30"
           >
-            <div className="w-10 h-10 bg-[#2563EB]/10 rounded-xl flex items-center justify-center mb-4">
-              <Video size={20} className="text-[#2563EB]" />
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-white/15">
+              <Video size={20} className="text-white" />
             </div>
-            <div className="text-[#1A1A1A] font-semibold text-lg">Join Meeting</div>
-            <div className="text-sm text-[#6B6560] mt-1">Enter with a meeting ID</div>
-            <ArrowUpRight
-              size={15}
-              className="absolute top-5 right-5 text-[#C4BDB5] group-hover:text-[#7C3AED] transition-colors"
-            />
+            <div className="text-lg font-semibold text-white">Join Meeting</div>
+            <div className="mt-1 text-sm text-white/70">Enter with a meeting ID</div>
+            <ArrowUpRight size={15} className="absolute right-5 top-5 text-white/60 transition-colors group-hover:text-white/90" />
           </button>
         </div>
 
         <div className="grid grid-cols-2 gap-4 mb-8">
           <button
             onClick={() => navigate('/workspace')}
-            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+            className="group relative rounded-2xl border border-[#E8E4DD] bg-white p-6 text-left shadow-sm transition-all duration-200 hover:shadow-[0_0_0_1px_rgba(124,58,237,0.1),0_10px_30px_rgba(124,58,237,0.06)]"
           >
-            <div className="w-10 h-10 bg-[#059669]/10 rounded-xl flex items-center justify-center mb-4">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#059669]/10 to-[#7C3AED]/10">
               <LayoutGrid size={20} className="text-[#059669]" />
             </div>
             <div className="text-[#1A1A1A] font-semibold text-lg">
@@ -201,9 +204,9 @@ export const DashboardPage = () => {
 
           <button
             onClick={() => navigate('/analytics')}
-            className="group relative bg-white border border-[#E8E4DD] hover:border-[#7C3AED]/40 rounded-2xl p-6 cursor-pointer transition-all duration-200 hover:shadow-md text-left"
+            className="group relative rounded-2xl border border-[#E8E4DD] bg-white p-6 text-left shadow-sm transition-all duration-200 hover:shadow-[0_0_0_1px_rgba(124,58,237,0.1),0_10px_30px_rgba(124,58,237,0.06)]"
           >
-            <div className="w-10 h-10 bg-[#D97706]/10 rounded-xl flex items-center justify-center mb-4">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#D97706]/10 to-[#2563EB]/10">
               <BarChart2 size={20} className="text-[#D97706]" />
             </div>
             <div className="text-[#1A1A1A] font-semibold text-lg">Analytics</div>
@@ -215,20 +218,23 @@ export const DashboardPage = () => {
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-            <div className="text-2xl font-semibold text-[#1A1A1A]">{meetings.length}</div>
-            <div className="text-xs text-[#6B6560] mt-1">Total meetings</div>
+        <div className="mb-8 grid grid-cols-3 gap-4">
+          <div className="rounded-2xl border border-[#E8E4DD] bg-white p-5 shadow-sm">
+            <div className="h-0.5 w-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#2563EB]" />
+            <div className="mt-4 text-2xl font-semibold text-[#1A1A1A]">{meetings.length}</div>
+            <div className="mt-1 text-xs text-[#6B6560]">Total meetings</div>
           </div>
-          <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-            <div className="text-2xl font-semibold text-[#1A1A1A]">
+          <div className="rounded-2xl border border-[#E8E4DD] bg-white p-5 shadow-sm">
+            <div className="h-0.5 w-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#2563EB]" />
+            <div className="mt-4 text-2xl font-semibold text-[#1A1A1A]">
               {meetings.reduce((acc, m) => acc + (m.participants?.length || 1), 0)}
             </div>
-            <div className="text-xs text-[#6B6560] mt-1">Total participants</div>
+            <div className="mt-1 text-xs text-[#6B6560]">Total participants</div>
           </div>
-          <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5">
-            <div className="text-2xl font-semibold text-[#1A1A1A]">0h</div>
-            <div className="text-xs text-[#6B6560] mt-1">Hours this week</div>
+          <div className="rounded-2xl border border-[#E8E4DD] bg-white p-5 shadow-sm">
+            <div className="h-0.5 w-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#2563EB]" />
+            <div className="mt-4 text-2xl font-semibold text-[#1A1A1A]">0h</div>
+            <div className="mt-1 text-xs text-[#6B6560]">Hours this week</div>
           </div>
         </div>
 

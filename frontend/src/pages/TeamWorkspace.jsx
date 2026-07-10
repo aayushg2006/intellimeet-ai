@@ -125,38 +125,48 @@ export const TeamWorkspace = () => {
   const totalTasks = tasks.length;
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7]">
-      <div className="border-b border-[#E8E4DD] bg-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
-        </div>
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
-        >
-          <ArrowLeft size={16} />
-          Back to dashboard
-        </button>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-[#FAF9F7] to-[#F3F0FF] text-[#1A1A1A]">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute left-[-3rem] top-12 h-[24rem] w-[24rem] rounded-full bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-45" />
+        <div className="absolute right-[-2rem] top-[-2rem] h-[20rem] w-[28rem] rounded-[45%] bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-40" />
+        <div className="absolute bottom-0 right-[8%] h-[18rem] w-[20rem] rounded-[40%] bg-gradient-to-br from-[#93C5FD] via-[#BFDBFE] to-white blur-3xl opacity-40" />
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 pt-6 pb-4">
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-[#1A1A1A]">
-              {activeWorkspace === 'personal' ? 'My Tasks' : 'Team Workspace'}
-            </h1>
-            <p className="text-sm text-[#6B6560] mt-1">
-              {activeWorkspace === 'personal' ? 'Personal To-Do Board' : 'IntellMeet — Sprint 1'}
-            </p>
+      <div className="relative z-10">
+        <div className="sticky top-0 z-50 border-b border-white/10 bg-white/60 px-6 py-4 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold text-[#1A1A1A]">
+              <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              className="flex items-center gap-2 text-sm text-[#6B6560] transition hover:text-[#1A1A1A]"
+            >
+              <ArrowLeft size={16} />
+              Back to dashboard
+            </button>
           </div>
-          <span className="bg-white border border-[#E8E4DD] text-[#6B6560] text-xs px-3 py-1.5 rounded-full">
-            {totalTasks} tasks
-          </span>
         </div>
-      </div>
 
-      <div className="max-w-7xl mx-auto px-6 pb-6">
-        <div className="bg-white border border-[#E8E4DD] rounded-2xl p-5 mb-6">
+        <div className="mx-auto max-w-7xl px-6 pt-6 pb-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-[#1A1A1A]">
+                {activeWorkspace === 'personal' ? 'My Tasks' : 'Team Workspace'}
+              </h1>
+              <p className="mt-1 text-sm text-[#6B6560]">
+                {activeWorkspace === 'personal' ? 'Personal To-Do Board' : 'IntellMeet — Sprint 1'}
+              </p>
+            </div>
+            <span className="rounded-full border border-[#E8E4DD] bg-white text-xs px-3 py-1.5 text-[#6B6560]">
+              {totalTasks} tasks
+            </span>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl px-6 pb-6">
+          <div className="mb-6 rounded-2xl border border-[#E8E4DD] bg-white p-5">
           <div className="flex items-center justify-between gap-4 mb-4">
             <div>
               <h2 className="text-lg font-semibold text-[#1A1A1A]">Meeting History</h2>
@@ -235,20 +245,21 @@ export const TeamWorkspace = () => {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 pb-10">
-        <KanbanBoard tasks={tasks} onTaskMove={handleTaskMove} onTaskClick={handleTaskClick} />
-      </div>
+        <div className="mx-auto max-w-7xl px-6 pb-10">
+          <KanbanBoard tasks={tasks} onTaskMove={handleTaskMove} onTaskClick={handleTaskClick} />
+        </div>
 
-      <TaskModal 
-        key={`${selectedTask?._id || 'new'}-${initialStatus}-${activeWorkspace}-${isModalOpen ? 'open' : 'closed'}`}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        task={selectedTask}
-        initialStatus={initialStatus}
-        workspace={activeWorkspace}
-        onSave={handleTaskAction}
-        onDelete={handleTaskAction}
-      />
+        <TaskModal 
+          key={`${selectedTask?._id || 'new'}-${initialStatus}-${activeWorkspace}-${isModalOpen ? 'open' : 'closed'}`}
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          task={selectedTask}
+          initialStatus={initialStatus}
+          workspace={activeWorkspace}
+          onSave={handleTaskAction}
+          onDelete={handleTaskAction}
+        />
+      </div>
     </div>
   )
 }

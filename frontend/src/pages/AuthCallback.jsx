@@ -49,22 +49,22 @@ export const AuthCallback = () => {
 
   if (authResult.error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-lg shadow-2xl p-8 max-w-md text-center">
-          <div className="text-red-500 text-lg font-semibold mb-2">Authentication Error</div>
-          <p className="text-gray-600">{authResult.error}</p>
-          <p className="text-sm text-gray-400 mt-2">Redirecting to login...</p>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+        <div className="max-w-md rounded-2xl border border-white/20 bg-white/10 p-8 text-center text-white shadow-2xl shadow-black/20 backdrop-blur-lg">
+          <div className="mb-2 text-lg font-semibold text-white">Authentication Error</div>
+          <p className="text-sm text-slate-200">{authResult.error}</p>
+          <p className="mt-2 text-sm text-slate-300">Redirecting to login...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-2xl p-8 max-w-md text-center">
-        <Loader size={32} className="animate-spin text-purple-600 mx-auto mb-4" />
-        <p className="text-gray-700 font-medium">Completing sign-in...</p>
-        <p className="text-sm text-gray-400 mt-1">Please wait</p>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+      <div className="max-w-md rounded-2xl border border-white/20 bg-white/10 p-8 text-center text-white shadow-2xl shadow-black/20 backdrop-blur-lg">
+        <Loader size={32} className="mx-auto mb-4 animate-spin text-white" />
+        <p className="font-medium text-white">Completing sign-in...</p>
+        <p className="mt-1 text-sm text-slate-300">Please wait</p>
       </div>
     </div>
   )

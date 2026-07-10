@@ -113,30 +113,41 @@ export const SettingsPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7]">
-      {/* Header */}
-      <div className="border-b border-[#E8E4DD] bg-white px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[#1A1A1A] font-semibold">
-          <span className="text-[#7C3AED]">●</span>
-          IntellMeet
-        </div>
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition"
-        >
-          <ArrowLeft size={16} />
-          Back to dashboard
-        </button>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-[#FAF9F7] to-[#F3F0FF] text-[#1A1A1A]">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute left-[-3rem] top-12 h-[24rem] w-[24rem] rounded-full bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-45" />
+        <div className="absolute right-[-2rem] top-[-2rem] h-[20rem] w-[28rem] rounded-[45%] bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-40" />
+        <div className="absolute bottom-0 right-[8%] h-[18rem] w-[20rem] rounded-[40%] bg-gradient-to-br from-[#93C5FD] via-[#BFDBFE] to-white blur-3xl opacity-40" />
       </div>
 
-      <div className="max-w-2xl mx-auto px-6 pt-8 pb-10">
-        <h1 className="text-2xl font-semibold text-[#1A1A1A]">Settings</h1>
-        <p className="text-sm text-[#6B6560] mt-1">Manage your profile and account</p>
+      <div className="relative z-10">
+        <div className="sticky top-0 z-50 border-b border-white/10 bg-white/60 px-6 py-4 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold text-[#1A1A1A]">
+              <img src="/logo.png" alt="IntellMeet" className="h-8 w-auto" />
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              aria-label="Back to dashboard"
+              className="flex items-center gap-2 text-sm text-[#6B6560] transition hover:text-[#1A1A1A]"
+            >
+              <ArrowLeft size={16} />
+              Back to dashboard
+            </button>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-2xl px-6 pt-8 pb-10">
+          <h1 className="text-2xl font-semibold text-[#1A1A1A]">Settings</h1>
+          <p className="mt-1 text-sm text-[#6B6560]">Manage your profile and account</p>
 
         {/* Profile Card */}
-        <div className="mt-8 bg-white border border-[#E8E4DD] rounded-2xl p-6">
-          <h2 className="text-sm font-semibold text-[#1A1A1A] mb-5 flex items-center gap-2">
-            <User size={16} className="text-[#7C3AED]" />
+        <div className="mt-8 rounded-2xl border border-[#E8E4DD] bg-white/80 p-6 shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)] backdrop-blur-sm">
+          <h2 className="mb-5 flex items-center gap-2 text-sm font-semibold text-[#1A1A1A]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#7C3AED]/10 to-[#2563EB]/10">
+              <User size={16} className="text-[#7C3AED]" />
+            </div>
             Profile Information
           </h2>
 
@@ -158,7 +169,8 @@ export const SettingsPage = () => {
                 type="button"
                 onClick={handleAvatarClick}
                 disabled={uploading}
-                className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer disabled:cursor-wait"
+                aria-label="Upload profile photo"
+                className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-full bg-black/40 opacity-0 transition disabled:cursor-wait group-hover:opacity-100"
               >
                 {uploading ? (
                   <Loader size={18} className="text-white animate-spin" />
@@ -205,16 +217,17 @@ export const SettingsPage = () => {
           <form onSubmit={handleSave} className="space-y-4">
             {/* Name */}
             <div>
-              <label className="block text-xs font-medium text-[#6B6560] uppercase tracking-wider mb-1.5">
+              <label htmlFor="display-name" className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-[#6B6560]">
                 Display Name
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-2.5 text-[#C4BDB5]" size={16} />
                 <input
+                  id="display-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-[#FAF9F7] border border-[#E8E4DD] rounded-xl pl-9 pr-4 py-2.5 text-sm text-[#1A1A1A] placeholder-[#C4BDB5] focus:outline-none focus:border-[#7C3AED] transition"
+                  className="w-full rounded-xl border border-[#E8E4DD] bg-[#FAF9F7] py-2.5 pl-9 pr-4 text-sm text-[#1A1A1A] placeholder-[#C4BDB5] transition focus:border-[#7C3AED] focus:outline-none"
                   placeholder="Your name"
                 />
               </div>
@@ -222,33 +235,35 @@ export const SettingsPage = () => {
 
             {/* Email (read-only) */}
             <div>
-              <label className="block text-xs font-medium text-[#6B6560] uppercase tracking-wider mb-1.5">
+              <label htmlFor="email" className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-[#6B6560]">
                 Email
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-2.5 text-[#C4BDB5]" size={16} />
                 <input
+                  id="email"
                   type="email"
                   value={user?.email || ''}
                   disabled
-                  className="w-full bg-[#F5F2EE] border border-[#E8E4DD] rounded-xl pl-9 pr-4 py-2.5 text-sm text-[#6B6560] cursor-not-allowed"
+                  className="w-full cursor-not-allowed rounded-xl border border-[#E8E4DD] bg-[#F5F2EE] py-2.5 pl-9 pr-4 text-sm text-[#6B6560]"
                 />
               </div>
-              <p className="text-xs text-[#C4BDB5] mt-1">Email cannot be changed</p>
+              <p className="mt-1 text-xs text-[#C4BDB5]">Email cannot be changed</p>
             </div>
 
             {/* Role (read-only) */}
             <div>
-              <label className="block text-xs font-medium text-[#6B6560] uppercase tracking-wider mb-1.5">
+              <label htmlFor="role" className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-[#6B6560]">
                 Role
               </label>
               <div className="relative">
                 <Shield className="absolute left-3 top-2.5 text-[#C4BDB5]" size={16} />
                 <input
+                  id="role"
                   type="text"
                   value={user?.role || 'Member'}
                   disabled
-                  className="w-full bg-[#F5F2EE] border border-[#E8E4DD] rounded-xl pl-9 pr-4 py-2.5 text-sm text-[#6B6560] cursor-not-allowed"
+                  className="w-full cursor-not-allowed rounded-xl border border-[#E8E4DD] bg-[#F5F2EE] py-2.5 pl-9 pr-4 text-sm text-[#6B6560]"
                 />
               </div>
             </div>
@@ -283,7 +298,7 @@ export const SettingsPage = () => {
             <button
               type="submit"
               disabled={saving || name.trim() === user?.name}
-              className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl py-2.5 text-sm font-semibold transition flex items-center justify-center gap-2 mt-6"
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#6D28D9] py-2.5 text-sm font-semibold text-white transition hover:from-[#6D28D9] hover:to-[#5B21B6] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {saving ? (
                 <>
@@ -298,6 +313,7 @@ export const SettingsPage = () => {
               )}
             </button>
           </form>
+        </div>
         </div>
       </div>
     </div>

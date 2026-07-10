@@ -1,8 +1,59 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Video, Zap, Shield, ArrowRight } from 'lucide-react'
+import { Video, Zap, Shield, ArrowRight, Mic, FileText, Sparkles, CheckSquare } from 'lucide-react'
 
 export const LandingPage = () => {
   const navigate = useNavigate()
+  const [transcriptText, setTranscriptText] = useState('')
+  const [showTranscript, setShowTranscript] = useState(false)
+  const [showWaveform, setShowWaveform] = useState(true)
+  const [isTranscriptActive, setIsTranscriptActive] = useState(false)
+
+  const waveformBars = Array.from({ length: 16 }, (_, index) => ({
+    id: index,
+    height: `${18 + ((index * 17) % 26)}px`,
+    delay: `${index * 0.08}s`,
+  }))
+
+  useEffect(() => {
+    const fullTranscript = 'Alex: Let\'s finalize the Q3 roadmap by Friday...'
+    let typeInterval
+    let finishTimeout
+    let resetTimeout
+
+    const startLoop = () => {
+      setTranscriptText('')
+      setShowTranscript(false)
+      setShowWaveform(true)
+      setIsTranscriptActive(false)
+
+      let index = 0
+      typeInterval = setInterval(() => {
+        setTranscriptText(fullTranscript.slice(0, index + 1))
+        index += 1
+        if (index >= fullTranscript.length) {
+          clearInterval(typeInterval)
+          setShowTranscript(true)
+          setShowWaveform(false)
+          setIsTranscriptActive(true)
+
+          finishTimeout = setTimeout(() => {
+            setShowTranscript(false)
+            setIsTranscriptActive(false)
+            resetTimeout = setTimeout(startLoop, 1400)
+          }, 2400)
+        }
+      }, 45)
+    }
+
+    startLoop()
+
+    return () => {
+      clearInterval(typeInterval)
+      clearTimeout(finishTimeout)
+      clearTimeout(resetTimeout)
+    }
+  }, [])
 
   return (
     <div className="min-h-screen bg-[#0F0F11] text-white overflow-x-hidden">
@@ -36,9 +87,19 @@ export const LandingPage = () => {
           from { opacity: 0; transform: scale(0.95); }
           to { opacity: 1; transform: scale(1); }
         }
+        @keyframes waveformPulse {
+          0%, 100% { transform: scaleY(0.35); opacity: 0.35; }
+          50% { transform: scaleY(1); opacity: 0.85; }
+        }
+        @keyframes transcriptFade {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
         .animate-fade-in-up { animation: fadeInUp 0.6s ease forwards; }
         .animate-fade-in { animation: fadeIn 0.5s ease forwards; }
         .animate-scale-in { animation: scaleIn 0.5s ease forwards; }
+        .waveform-bar { animation: waveformPulse 1.4s ease-in-out infinite; transform-origin: bottom; }
+        .transcript-line { animation: transcriptFade 0.25s ease-out; }
         .delay-100 { animation-delay: 0.1s; opacity: 0; }
         .delay-200 { animation-delay: 0.2s; opacity: 0; }
         .delay-300 { animation-delay: 0.3s; opacity: 0; }
@@ -60,26 +121,6 @@ export const LandingPage = () => {
           style={{
             background: 'linear-gradient(to bottom, transparent 60%, #0F0F11 100%)',
           }}
-        />
-        <div
-          className="orb-1 absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-30"
-          style={{ background: 'radial-gradient(circle, #7C3AED 0%, transparent 70%)' }}
-        />
-        <div
-          className="orb-2 absolute -top-20 -right-32 w-80 h-80 rounded-full opacity-20"
-          style={{ background: 'radial-gradient(circle, #2563EB 0%, transparent 70%)' }}
-        />
-        <div
-          className="orb-3 absolute bottom-20 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full opacity-15"
-          style={{ background: 'radial-gradient(circle, #7C3AED 0%, transparent 70%)' }}
-        />
-        <div
-          className="orb-2 absolute -bottom-20 -right-20 w-72 h-72 rounded-full opacity-20"
-          style={{ background: 'radial-gradient(circle, #2563EB 0%, transparent 70%)' }}
-        />
-        <div
-          className="orb-1 absolute top-1/2 -left-20 w-64 h-64 rounded-full opacity-15"
-          style={{ background: 'radial-gradient(circle, #7C3AED 0%, transparent 70%)' }}
         />
       </div>
 
@@ -105,7 +146,17 @@ export const LandingPage = () => {
         </div>
       </nav>
 
-      <section className="relative z-10 pt-32 pb-24 px-6 text-center max-w-4xl mx-auto">
+      <section className="relative z-10 pt-32 pb-24 px-6 text-center max-w-4xl mx-auto overflow-hidden">
+        <div className="pointer-events-none absolute inset-x-0 top-4 mx-auto hidden h-36 w-full max-w-4xl items-end justify-center gap-2 sm:flex">
+          {waveformBars.map((bar) => (
+            <div
+              key={bar.id}
+              className="waveform-bar w-1 rounded-full bg-white/10"
+              style={{ height: bar.height, animationDelay: bar.delay, opacity: 0.25 + (bar.id % 3) * 0.08 }}
+            />
+          ))}
+        </div>
+
         <div className="inline-flex items-center gap-2 bg-[#7C3AED]/10 border border-[#7C3AED]/20 text-[#7C3AED] text-xs px-3 py-1.5 rounded-full mb-8 animate-fade-in-up delay-100">
           <Zap size={12} />
           AI-Powered Meeting Intelligence
@@ -145,9 +196,10 @@ export const LandingPage = () => {
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <img src="/logo.png" alt="IntellMeet" className="h-6 w-auto brightness-0 invert" />
                 <span className="text-white/20">•</span>
-                <span className="text-white/40 text-sm">24:35</span>
+                <span className="font-mono text-white/40 text-sm">24:35</span>
               </div>
-              <div className="bg-red-500/20 text-red-400 border border-red-500/30 text-xs px-2.5 py-1 rounded-full font-semibold">
+              <div className="flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/20 px-2.5 py-1 text-xs font-semibold text-red-400">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[#2DD4BF]" />
                 LIVE
               </div>
             </div>
@@ -161,7 +213,19 @@ export const LandingPage = () => {
               </div>
               <div className="bg-[#1C1C1E] rounded-xl flex items-center justify-center">
                 <div className="flex flex-col items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500" />
+                  <div className="relative w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-500">
+                    {showWaveform && (
+                      <div className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-end gap-1">
+                        {[4, 6, 3].map((barHeight, index) => (
+                          <span
+                            key={index}
+                            className="waveform-bar w-1 rounded-full bg-[#2DD4BF]"
+                            style={{ height: `${barHeight}px`, animationDelay: `${index * 0.09}s` }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <span className="text-xs text-white/60">Alex</span>
                 </div>
               </div>
@@ -175,10 +239,38 @@ export const LandingPage = () => {
 
             <div className="bg-[#1C1C1E] border-t border-white/5 px-4 py-3 flex items-center gap-3">
               <Zap size={14} className="text-[#7C3AED]" />
-              <span className="text-sm text-white/60">AI Summary ready</span>
+              <div className="flex min-h-5 items-center">
+                {showTranscript ? (
+                  <span className="transcript-line font-mono text-xs text-[#2DD4BF]">{transcriptText}</span>
+                ) : (
+                  <span className="text-sm text-white/60">AI Summary ready</span>
+                )}
+              </div>
               <button className="ml-auto text-xs text-[#7C3AED]">View</button>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="relative z-10 px-6 py-8 max-w-5xl mx-auto">
+        <div className="mb-4 text-center text-xs font-semibold uppercase tracking-[0.3em] text-[#2DD4BF]">
+          How it works
+        </div>
+        <div className="flex flex-col items-center justify-center gap-3 md:flex-row md:gap-2">
+          {[
+            { icon: Mic, label: 'Speak' },
+            { icon: FileText, label: 'Transcribe' },
+            { icon: Sparkles, label: 'Summarize' },
+            { icon: CheckSquare, label: 'Assign' },
+          ].map((step, index) => (
+            <div key={step.label} className="flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-full border border-white/10 bg-[#1C1C1E]/80 px-3 py-2 text-sm text-white/70 shadow-sm">
+                <step.icon size={14} className="text-[#7C3AED]" />
+                <span>{step.label}</span>
+              </div>
+              {index < 3 && <ArrowRight size={14} className="hidden text-[#2DD4BF] md:block" />}
+            </div>
+          ))}
         </div>
       </section>
 

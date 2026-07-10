@@ -72,11 +72,13 @@ const OrganizationLogo = ({ org, isAdmin }) => {
                 <Camera size={16} className="text-white" />
               )}
               <input
+                id={`org-logo-upload-${org._id}`}
                 type="file"
                 accept="image/jpeg,image/png,image/gif,image/webp"
                 onChange={handleLogoChange}
                 className="hidden"
                 disabled={uploading}
+                aria-label="Upload organization logo"
               />
             </label>
           </>
@@ -670,24 +672,41 @@ export const OrganizationSettings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF9F7] text-[#1A1A1A]">
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-sm text-[#6B6560] hover:text-[#1A1A1A] transition-colors mb-6"
-        >
-          <ArrowLeft size={16} />
-          Back to Dashboard
-        </button>
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-white via-[#FAF9F7] to-[#F3F0FF] text-[#1A1A1A]">
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute -left-16 top-16 h-[28rem] w-[28rem] rounded-full bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-50" />
+        <div className="absolute right-[-4rem] top-[-2rem] h-[24rem] w-[30rem] rounded-[45%] bg-gradient-to-br from-[#C4B5FD] via-[#93C5FD] to-[#E0E7FF] blur-3xl opacity-45" />
+        <div className="absolute bottom-0 right-[-2rem] h-[20rem] w-[24rem] rounded-[40%] bg-gradient-to-br from-[#93C5FD] via-[#BFDBFE] to-white blur-3xl opacity-40" />
+      </div>
+      <div className="relative z-10">
+        <div className="mx-auto max-w-4xl px-6 py-8">
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-[#E8E4DD] bg-white/70 px-3.5 py-2 text-sm font-medium text-[#6B6560] backdrop-blur-sm transition hover:border-[#C4B5FD] hover:text-[#1A1A1A]"
+          >
+            <ArrowLeft size={16} />
+            Back to Dashboard
+          </button>
 
-        <h1 className="text-3xl font-semibold mb-8 text-[#1A1A1A]">Organization Settings</h1>
+          <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="mb-2 text-sm font-medium uppercase tracking-[0.24em] text-[#7C3AED]">Workspace management</p>
+              <h1 className="text-3xl font-semibold tracking-tight text-[#1A1A1A] sm:text-4xl">Organization Settings</h1>
+            </div>
+            <div className="rounded-full border border-[#E8E4DD] bg-white/70 px-4 py-2 text-sm text-[#6B6560] shadow-sm backdrop-blur-sm">
+              Keep your teams, members, and workspaces aligned
+            </div>
+          </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
+          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
           
-          <div className="space-y-8">
-            <section className="bg-white p-6 rounded-2xl border border-[#E8E4DD] shadow-sm">
-              <h2 className="text-xl font-semibold flex items-center gap-2 mb-4">
-                <Plus size={20} className="text-[#7C3AED]" />
+          <div className="space-y-6">
+            <section className="rounded-3xl border border-[#E8E4DD] bg-white/90 p-6 shadow-[0_20px_45px_-30px_rgba(15,23,42,0.2)] backdrop-blur-sm">
+              <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold text-[#1A1A1A]">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7C3AED]/10 to-[#2563EB]/10">
+                  <Plus size={20} className="text-[#7C3AED]" />
+                </div>
                 Create Organization
               </h2>
               <form onSubmit={handleCreate} className="space-y-4">
@@ -716,16 +735,18 @@ export const OrganizationSettings = () => {
                 <button
                   type="submit"
                   disabled={createOrgMutation.isLoading}
-                  className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white py-2 rounded-xl text-sm font-medium transition disabled:opacity-50"
+                  className="w-full rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#6D28D9] px-4 py-2 text-sm font-medium text-white transition hover:from-[#6D28D9] hover:to-[#5B21B6] disabled:opacity-50"
                 >
                   {createOrgMutation.isLoading ? 'Creating...' : 'Create Organization'}
                 </button>
               </form>
             </section>
 
-            <section className="bg-white p-6 rounded-2xl border border-[#E8E4DD] shadow-sm">
-              <h2 className="text-xl font-semibold flex items-center gap-2 mb-4">
-                <Link2 size={20} className="text-[#2563EB]" />
+            <section className="rounded-3xl border border-[#E8E4DD] bg-white/90 p-6 shadow-[0_20px_45px_-30px_rgba(15,23,42,0.2)] backdrop-blur-sm">
+              <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold text-[#1A1A1A]">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7C3AED]/10 to-[#2563EB]/10">
+                  <Link2 size={20} className="text-[#2563EB]" />
+                </div>
                 Join via Token
               </h2>
               <form onSubmit={handleJoin} className="space-y-4">
@@ -752,8 +773,10 @@ export const OrganizationSettings = () => {
           </div>
 
           <div className="space-y-6">
-            <h2 className="text-xl font-semibold flex items-center gap-2 text-[#1A1A1A]">
-              <Building size={20} className="text-[#059669]" />
+            <h2 className="flex items-center gap-2 text-xl font-semibold text-[#1A1A1A]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-[#059669]/10 to-[#2563EB]/10">
+                <Building size={20} className="text-[#059669]" />
+              </div>
               Your Organizations
             </h2>
             {isLoading ? (
@@ -764,8 +787,10 @@ export const OrganizationSettings = () => {
               orgsData.map((org) => (
                 <div
                   key={org._id}
-                  className={`bg-white p-5 rounded-2xl border ${
-                    activeWorkspace === org._id ? 'border-[#7C3AED] shadow-sm' : 'border-[#E8E4DD]'
+                  className={`rounded-3xl border bg-white/90 p-5 backdrop-blur-sm ${
+                    activeWorkspace === org._id
+                      ? 'border-[#7C3AED] shadow-[0_0_0_1px_rgba(124,58,237,0.15),0_12px_30px_-20px_rgba(124,58,237,0.45)]'
+                      : 'border-[#E8E4DD] shadow-[0_20px_45px_-35px_rgba(15,23,42,0.25)]'
                   }`}
                 >
                   <OrganizationLogo org={org} isAdmin={org.userRole === 'OrgAdmin'} />
@@ -800,7 +825,7 @@ export const OrganizationSettings = () => {
                   {activeWorkspace !== org._id && (
                     <button
                       onClick={() => setActiveWorkspace(org._id)}
-                      className="mt-4 w-full text-center text-sm font-medium text-[#7C3AED] bg-[#7C3AED]/10 hover:bg-[#7C3AED]/20 py-1.5 rounded-lg transition"
+                      className="mt-4 w-full rounded-lg bg-gradient-to-r from-[#7C3AED]/10 to-[#2563EB]/10 px-3 py-1.5 text-center text-sm font-medium text-[#7C3AED] transition hover:from-[#7C3AED]/20 hover:to-[#2563EB]/20"
                     >
                       Switch to Workspace
                     </button>
@@ -813,5 +838,6 @@ export const OrganizationSettings = () => {
         </div>
       </div>
     </div>
+  </div>
   );
 };

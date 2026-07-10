@@ -1632,7 +1632,7 @@ export const VideoRoom = () => {
             }
           }}
           disabled={!localStream}
-          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isAudioEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'}`}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isAudioEnabled ? 'bg-[#7C3AED]/20 text-[#EDE9FE] ring-1 ring-[#7C3AED]/30 hover:bg-[#7C3AED]/30' : 'bg-red-500 text-white hover:bg-red-600'}`}
           title={isAudioEnabled ? 'Mute' : 'Unmute'}
         >
           {isAudioEnabled ? <Mic size={20} /> : <MicOff size={20} />}
@@ -1649,7 +1649,7 @@ export const VideoRoom = () => {
             }
           }}
           disabled={!localStream}
-          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isVideoEnabled ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-red-500 text-white hover:bg-red-600'}`}
+          className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all ${isVideoEnabled ? 'bg-[#7C3AED]/20 text-[#EDE9FE] ring-1 ring-[#7C3AED]/30 hover:bg-[#7C3AED]/30' : 'bg-red-500 text-white hover:bg-red-600'}`}
           title={isVideoEnabled ? 'Stop Video' : 'Start Video'}
         >
           {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
