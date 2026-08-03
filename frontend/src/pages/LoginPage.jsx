@@ -27,7 +27,7 @@ export const LoginPage = () => {
 
     try {
       const response = await axios.post(`${API_BASE_URL}/api/auth/login`, { email, password })
-      const { _id, name, email: userEmail, role, avatar, authProvider, token } = response.data
+      const { _id, name, email: userEmail, role, avatar, authProvider, token, refreshToken } = response.data
 
       const userData = {
         _id,
@@ -39,7 +39,7 @@ export const LoginPage = () => {
         authProvider,
       }
 
-      login(userData, token)
+      login(userData, token, refreshToken)
       navigate('/dashboard')
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please try again.')

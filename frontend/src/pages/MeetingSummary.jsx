@@ -501,29 +501,45 @@ export const MeetingSummary = () => {
   }, [meetingId, token])
 
   useEffect(() => {
-    let pollingInterval;
+    let pollingInterval
+    let attempts = 0
+    // ~5 minutes at 3s. The server-side reaper resolves any generation stuck
+    // longer than that into a 'failed' state with a retry button, so polling
+    // forever (as this used to) only burned requests.
+    const MAX_ATTEMPTS = 100
 
     const poll = async () => {
+      // Don't poll a tab nobody is looking at.
+      if (document.visibilityState === 'hidden') return
+
+      attempts += 1
       const data = await fetchSummary()
-      const shouldKeepPolling = data && (
+
+      const stillGenerating = data && (
         data.generationStatus === 'generating' ||
         (data.generationStatus === 'pending' && Boolean(data.generationStartedAt) && (data.transcript?.length > 0 || data.chatSummary || data.notesSummary)) ||
         (!data.generationStatus && !data.summary && data.transcript?.length > 0)
       )
 
-      if (shouldKeepPolling) {
-        if (!pollingInterval) {
-          pollingInterval = setInterval(poll, 3000);
-        }
-      } else {
-        if (pollingInterval) clearInterval(pollingInterval);
+      if (stillGenerating && attempts < MAX_ATTEMPTS) {
+        if (!pollingInterval) pollingInterval = setInterval(poll, 3000)
+      } else if (pollingInterval) {
+        clearInterval(pollingInterval)
+        pollingInterval = null
       }
     }
 
     poll()
 
+    // Catch up immediately when the user comes back to the tab.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') poll()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
     return () => {
-      if (pollingInterval) clearInterval(pollingInterval);
+      if (pollingInterval) clearInterval(pollingInterval)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [fetchSummary])
 

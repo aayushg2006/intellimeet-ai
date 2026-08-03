@@ -59,7 +59,7 @@ export const RegisterPage = () => {
         email: formData.email,
         password: formData.password,
       })
-      const { _id, name, email, role, avatar, authProvider, token } = response.data
+      const { _id, name, email, role, avatar, authProvider, token, refreshToken } = response.data
 
       const userData = {
         _id,
@@ -71,7 +71,7 @@ export const RegisterPage = () => {
         authProvider,
       }
 
-      register(userData, token)
+      register(userData, token, refreshToken)
       navigate('/dashboard')
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed. Please try again.')

@@ -1,51 +1,59 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import axios from 'axios'
 import { useAuthStore } from '../store/authStore'
 import { Loader } from 'lucide-react'
 
 /**
  * OAuth callback handler page.
- * Google OAuth redirects here with token & user data in URL params.
- * This page extracts them, stores in auth state, and redirects to dashboard.
+ *
+ * Google OAuth redirects here with a single-use `code`, which we exchange over
+ * POST for the real tokens. The previous version received the JWT directly in
+ * the query string, which left it in browser history and in the Referer header
+ * of every subsequent request.
  */
 export const AuthCallback = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const login = useAuthStore((state) => state.login)
-  const authResult = useMemo(() => {
-    const token = searchParams.get('token')
-    const userParam = searchParams.get('user')
-    const errorParam = searchParams.get('error')
+  // Derived synchronously from the URL — no state update needed for the cases
+  // we can decide before making any request.
+  const initialError = searchParams.get('error')
+    ? 'Google sign-in failed. Please try again.'
+    : searchParams.get('code')
+      ? null
+      : 'Invalid authentication response.'
 
-    if (errorParam) {
-      return { error: 'Google sign-in failed. Please try again.' }
-    }
+  const [authResult, setAuthResult] = useState({ error: initialError })
+  // The code is single-use, so React StrictMode's double-mount would burn it on
+  // the first render and fail on the second.
+  const exchangedRef = useRef(false)
 
-    if (!token || !userParam) {
-      return { error: 'Invalid authentication response.' }
-    }
+  useEffect(() => {
+    if (exchangedRef.current || initialError) return
+    exchangedRef.current = true
 
-    try {
-      return {
-        token,
-        user: JSON.parse(decodeURIComponent(userParam)),
-      }
-    } catch {
-      return { error: 'Something went wrong during sign-in.' }
-    }
-  }, [searchParams])
+    const code = searchParams.get('code')
+    const baseURL = import.meta.env.VITE_API_URL || ''
+
+    axios
+      .post(`${baseURL}/api/auth/oauth/exchange`, { code })
+      .then(({ data }) => {
+        login(data, data.token, data.refreshToken)
+        // Drop the code from the URL before it reaches the history stack.
+        navigate('/dashboard', { replace: true })
+      })
+      .catch(() => {
+        setAuthResult({ error: 'This sign-in link has expired. Please try again.' })
+      })
+  }, [searchParams, login, navigate, initialError])
 
   useEffect(() => {
     if (authResult.error) {
       const timer = setTimeout(() => navigate('/login'), 3000)
       return () => clearTimeout(timer)
     }
-
-    if (authResult.token && authResult.user) {
-      login(authResult.user, authResult.token)
-      navigate('/dashboard', { replace: true })
-    }
-  }, [authResult, login, navigate])
+  }, [authResult, navigate])
 
   if (authResult.error) {
     return (

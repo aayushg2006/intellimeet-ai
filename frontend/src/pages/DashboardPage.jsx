@@ -6,8 +6,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import toast from 'react-hot-toast'
 import { WorkspaceSwitcher } from '../components/WorkspaceSwitcher'
+import { NotificationBell } from '../components/NotificationBell'
 import { ScheduleMeetingModal } from '../components/ScheduleMeetingModal'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { api } from '../lib/api'
 import { useSignedUrl } from '../hooks/useSignedUrl'
 import { formatMeetingDate, getMeetingAccessDetails, getMeetingAccessLabel, getMeetingTypeLabel } from '../utils/meetingDisplay'
 
@@ -38,7 +40,15 @@ export const DashboardPage = () => {
 
   const { url: resolvedAvatarUrl } = useSignedUrl(user?.avatar)
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Revoke the refresh token server-side so a copy lifted from localStorage
+    // can't be used to mint new sessions after sign-out.
+    try {
+      const { refreshToken } = useAuthStore.getState()
+      if (refreshToken) await api.post('/api/auth/logout', { refreshToken })
+    } catch {
+      // Signing out locally must succeed even if the request fails.
+    }
     logout()
     navigate('/login')
   }
@@ -109,18 +119,29 @@ export const DashboardPage = () => {
             )}
             <div className="text-sm text-[#6B6560]">{user?.name || 'User'}</div>
             <button
-              onClick={() => navigate('/settings')}
-              title="Settings"
+              onClick={() => navigate('/search')}
+              title="Search meetings"
+              aria-label="Search meetings"
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#6B6560] transition-colors hover:text-[#7C3AED]"
             >
-              <Settings size={16} />
+              <Search size={16} aria-hidden="true" />
+            </button>
+            <NotificationBell />
+            <button
+              onClick={() => navigate('/settings')}
+              title="Settings"
+              aria-label="Settings"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#6B6560] transition-colors hover:text-[#7C3AED]"
+            >
+              <Settings size={16} aria-hidden="true" />
             </button>
             <button
               onClick={handleLogout}
               title="Logout"
+              aria-label="Log out"
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-[#6B6560] transition-colors hover:text-red-500"
             >
-              <LogOut size={16} />
+              <LogOut size={16} aria-hidden="true" />
             </button>
           </div>
         </div>

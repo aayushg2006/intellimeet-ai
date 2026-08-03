@@ -7,7 +7,9 @@ export const LandingPage = () => {
   const [transcriptText, setTranscriptText] = useState('')
   const [showTranscript, setShowTranscript] = useState(false)
   const [showWaveform, setShowWaveform] = useState(true)
-  const [isTranscriptActive, setIsTranscriptActive] = useState(false)
+  // Only the setter is used — the flag drives the animation sequence's timing,
+  // not anything rendered.
+  const [, setIsTranscriptActive] = useState(false)
 
   const waveformBars = Array.from({ length: 16 }, (_, index) => ({
     id: index,

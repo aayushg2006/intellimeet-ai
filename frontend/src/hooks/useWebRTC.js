@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { api } from '../lib/api'
 
-const ICE_SERVERS = [
+/**
+ * STUN-only fallback, used until the server's ICE config arrives (and if that
+ * request fails). STUN alone cannot relay media, so peers behind symmetric NAT
+ * — most corporate networks and many mobile carriers — will fail to connect
+ * without a TURN server. TURN credentials come from GET /api/rtc/ice-servers.
+ */
+const FALLBACK_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
@@ -21,6 +28,31 @@ export const useWebRTC = () => {
   const makingOfferRef = useRef({}) // Track per-peer offer-in-progress
   const socketRefForScreen = useRef(null) // Socket ref for screen share renegotiation
   const socketRefRef = useRef(null)
+
+  // Held in a ref, not state: `createPeerConnection` is a `useCallback` with an
+  // empty dependency list, so it must read the latest config without being
+  // recreated (which would invalidate every caller).
+  const iceConfigRef = useRef({ iceServers: FALLBACK_ICE_SERVERS, turnConfigured: false })
+  const [iceStatus, setIceStatus] = useState({ loaded: false, turnConfigured: false })
+
+  // ─── FETCH ICE CONFIGURATION ───
+  useEffect(() => {
+    let cancelled = false
+
+    api
+      .get('/api/rtc/ice-servers')
+      .then(({ data }) => {
+        if (cancelled || !data?.iceServers?.length) return
+        iceConfigRef.current = data
+        setIceStatus({ loaded: true, turnConfigured: Boolean(data.turnConfigured) })
+      })
+      .catch(() => {
+        // Keep the STUN fallback — a failed lookup must not block the call.
+        if (!cancelled) setIceStatus({ loaded: true, turnConfigured: false })
+      })
+
+    return () => { cancelled = true }
+  }, [])
 
   // ─── INITIALIZE MEDIA ───
   const initializeMedia = useCallback(async (options = {}) => {
@@ -343,7 +375,7 @@ export const useWebRTC = () => {
       delete peerConnectionsRef.current[socketId]
     }
 
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+    const pc = new RTCPeerConnection({ iceServers: iceConfigRef.current.iceServers })
 
     pc.onicecandidate = (event) => {
       if (event.candidate && socketRef.current) {
@@ -373,9 +405,22 @@ export const useWebRTC = () => {
 
     pc.oniceconnectionstatechange = () => {
       console.log(`[WebRTC] ICE state for ${socketId}: ${pc.iceConnectionState}`)
+
       if (pc.iceConnectionState === 'failed') {
         console.warn(`[WebRTC] ICE failed for ${socketId}, restarting...`)
         pc.restartIce()
+
+        // Surface it. A failed connection otherwise just renders as a black
+        // tile with no explanation, and without TURN this is the likely cause.
+        setError(
+          iceConfigRef.current.turnConfigured
+            ? 'Connection to a participant failed. Retrying…'
+            : 'Could not connect to a participant. This network may require a TURN relay.'
+        )
+      }
+
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        setError(null)
       }
     }
 
@@ -501,6 +546,7 @@ export const useWebRTC = () => {
     isScreenSharing,
     screenStream: screenStreamRef,
     error,
+    iceStatus,
     initializeMedia,
     stopMedia,
     toggleAudio,

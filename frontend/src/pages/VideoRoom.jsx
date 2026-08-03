@@ -7,6 +7,9 @@ import ReactQuill from 'react-quill-new'
 import 'react-quill-new/dist/quill.snow.css'
 import axios from 'axios'
 import toast from 'react-hot-toast'
+import { api, getFreshToken } from '../lib/api'
+import { useCopilot } from '../hooks/useCopilot'
+import { CopilotPanel } from '../components/CopilotPanel'
 import {
   Mic,
   MicOff,
@@ -34,7 +37,8 @@ import {
   FileText,
   CheckSquare,
   Plus,
-  Newspaper
+  Newspaper,
+  Sparkles
 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
@@ -155,6 +159,7 @@ export const VideoRoom = () => {
   const [showNotes, setShowNotes] = useState(false)
   const [showTasks, setShowTasks] = useState(false)
   const [showTranscriptPanel, setShowTranscriptPanel] = useState(true)
+  const [showCopilot, setShowCopilot] = useState(false)
   const [sharedNotes, setSharedNotes] = useState('')
   const [tasks, setTasks] = useState([])
   const [newTaskTitle, setNewTaskTitle] = useState('')
@@ -210,6 +215,12 @@ export const VideoRoom = () => {
     handleIceCandidate,
     handleUserDisconnected
   } = useWebRTC()
+
+  const {
+    items: copilotItems,
+    status: copilotStatus,
+    handlersRef: copilotHandlersRef,
+  } = useCopilot()
 
   const { participantName, joinPreferences } = useMeetingStore()
   const { user } = useAuthStore()
@@ -309,16 +320,16 @@ export const VideoRoom = () => {
     let localSocket = null
 
     const setup = async () => {
-      // Read auth token once — hoisted so it's accessible for both API calls and socket auth
-      const tokenStore = localStorage.getItem('auth-storage')
-      const token = tokenStore ? JSON.parse(tokenStore).state?.token : null
+      // Access tokens are short-lived, so refresh if needed before the socket
+      // handshake — the handshake authenticates once and can't retry with a
+      // newer token. Reading straight from localStorage (as this used to) would
+      // hand over a possibly-expired token.
+      const token = await getFreshToken()
 
       // 1. Fetch meeting info to determine host
       let meetingData = null
       try {
-        const res = await axios.get(`/api/meetings/room/${meetingId}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
-        })
+        const res = await api.get(`/api/meetings/room/${meetingId}`)
         meetingData = res.data
       } catch (err) {
         console.error('[VideoRoom] Error fetching meeting:', err)
@@ -337,8 +348,8 @@ export const VideoRoom = () => {
       // 1.5 Fetch past messages and tasks
       try {
         const [msgRes, taskRes] = await Promise.all([
-          axios.get(`/api/messages/${meetingId}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }),
-          axios.get(`/api/tasks?meetingId=${meetingData._id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+          api.get(`/api/messages/${meetingId}`),
+          api.get(`/api/tasks?meetingId=${meetingData._id}`)
         ])
         
         if (cancelled) return
@@ -374,9 +385,14 @@ export const VideoRoom = () => {
 
       // 3. Connect socket
       const socketUrl = import.meta.env.VITE_API_URL || '/'
-      const socket = io(socketUrl, { 
+      const socket = io(socketUrl, {
         path: '/socket.io',
-        auth: { token }
+        // Callback form: socket.io re-invokes this before every (re)connection
+        // attempt, so a reconnect after the access token expired picks up a
+        // freshly refreshed one instead of replaying a dead token.
+        auth: (cb) => {
+          getFreshToken().then((fresh) => cb({ token: fresh || token }))
+        }
       })
       localSocket = socket
       socketRef.current = socket
@@ -563,6 +579,15 @@ export const VideoRoom = () => {
         ].slice(-3))
       })
 
+      // Live AI copilot. Handlers are read through a ref so this effect's
+      // dependency list stays [meetingId] — re-running it would tear down every
+      // listener above along with the peer connections.
+      socket.on('copilot:insights', (payload) => copilotHandlersRef.current?.insights(payload))
+      socket.on('copilot:snapshot', (payload) => copilotHandlersRef.current?.snapshot(payload))
+      socket.on('copilot:status', (payload) => copilotHandlersRef.current?.status(payload))
+      // Insights are pushed incrementally, so ask for the full set on join —
+      // otherwise a late joiner or a reconnect shows an empty panel.
+      socket.emit('copilot:sync', meetingId)
     }
 
     setup()
@@ -1572,6 +1597,21 @@ export const VideoRoom = () => {
         )}
       </div>
 
+      {showCopilot && (
+        <div className={`${isMobile ? 'fixed inset-x-0 top-16 bottom-0 z-40 border-t border-white/10' : 'fixed top-16 bottom-20 right-0 w-[380px] z-30 border-l border-white/10'} bg-[#111113] flex flex-col flex-shrink-0`}>
+          <div className="flex items-center justify-end px-4 pt-3">
+            <button
+              onClick={() => setShowCopilot(false)}
+              aria-label="Close AI copilot"
+              className="text-white/40 hover:text-white transition"
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
+          <CopilotPanel items={copilotItems} status={copilotStatus} />
+        </div>
+      )}
+
       {showTranscriptPanel && (
         <div className={`${isMobile ? 'fixed inset-x-0 top-16 bottom-0 z-40 border-t border-white/10' : 'fixed top-16 bottom-20 right-0 w-[380px] z-30 border-l border-white/10'} bg-[#111113] flex flex-col flex-shrink-0`}>
           <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
@@ -1756,11 +1796,30 @@ export const VideoRoom = () => {
 
         {!isMobile && (
           <button
-            onClick={() => { setShowTranscriptPanel(!showTranscriptPanel); setShowChat(false); setShowParticipants(false); setShowNotes(false); setShowTasks(false) }}
+            onClick={() => { setShowCopilot(!showCopilot); setShowTranscriptPanel(false); setShowChat(false); setShowParticipants(false); setShowNotes(false); setShowTasks(false) }}
+            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showCopilot ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
+            title="AI Copilot"
+            aria-label={`AI Copilot${copilotItems.length ? `, ${copilotItems.length} insights` : ''}`}
+            aria-pressed={showCopilot}
+          >
+            <Sparkles size={20} aria-hidden="true" />
+            {copilotItems.length > 0 && !showCopilot && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#7C3AED] px-1 text-[9px] font-bold text-white">
+                {copilotItems.length > 9 ? '9+' : copilotItems.length}
+              </span>
+            )}
+          </button>
+        )}
+
+        {!isMobile && (
+          <button
+            onClick={() => { setShowTranscriptPanel(!showTranscriptPanel); setShowCopilot(false); setShowChat(false); setShowParticipants(false); setShowNotes(false); setShowTasks(false) }}
             className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all relative ${showTranscriptPanel ? 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]' : 'bg-white/10 text-white hover:bg-white/20'}`}
             title="Live Transcript"
+            aria-label="Live transcript"
+            aria-pressed={showTranscriptPanel}
           >
-            <Newspaper size={20} />
+            <Newspaper size={20} aria-hidden="true" />
           </button>
         )}
 
