@@ -1,8 +1,8 @@
 import Meeting from '../models/Meeting.js';
 import Summary from '../models/Summary.js';
 import Task from '../models/Task.js';
-import Message from '../models/Message.js';
-import aiService from '../services/aiService.js';
+import { canUserAccessMeeting } from '../utils/meetingAccess.js';
+import { runSummaryPipeline } from '../services/summaryPipeline.js';
 
 export const getSummaryByMeeting = async (req, res) => {
   try {
@@ -16,6 +16,10 @@ export const getSummaryByMeeting = async (req, res) => {
 
     if (!meeting) {
       return res.status(404).json({ message: 'Meeting not found' });
+    }
+
+    if (!(await canUserAccessMeeting(meeting, req.user._id.toString()))) {
+      return res.status(403).json({ message: 'Not authorized to view this summary' });
     }
 
     const summary = await Summary.findOne({ meetingId: meeting._id });
@@ -95,6 +99,7 @@ export const getSummaryByMeeting = async (req, res) => {
       generationStatus: summary?.generationStatus || (summary?.summary ? 'completed' : 'pending'),
       generationError: summary?.generationError || '',
       generationStartedAt: summary?.generationStartedAt || null,
+      generationAttempts: summary?.generationAttempts || 0,
       actionItems: combinedActionItems,
       transcript: summary?.transcript || [],
       attachments: meeting.attachments || [],
@@ -111,7 +116,28 @@ export const getSummaryByMeeting = async (req, res) => {
 
 export const createSummary = async (req, res) => {
   try {
-    const summary = new Summary(req.body);
+    // `new Summary(req.body)` was a mass-assignment: any authenticated user
+    // could write a summary onto any meeting. Gate on meeting access and only
+    // accept the fields a client is allowed to set.
+    const { meetingId } = req.body;
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) {
+      return res.status(404).json({ message: 'Meeting not found' });
+    }
+    if (!(await canUserAccessMeeting(meeting, req.user._id.toString()))) {
+      return res.status(403).json({ message: 'Not authorized to create a summary for this meeting' });
+    }
+
+    const summary = new Summary({
+      meetingId: meeting._id,
+      organizationId: meeting.organizationId,
+      title: req.body.title || meeting.title,
+      date: req.body.date,
+      duration: req.body.duration,
+      summary: req.body.summary,
+      actionItems: req.body.actionItems,
+      transcript: req.body.transcript,
+    });
     const createdSummary = await summary.save();
     res.status(201).json(createdSummary);
   } catch (error) {
@@ -119,7 +145,7 @@ export const createSummary = async (req, res) => {
   }
 };
 
-export const generatePendingSummary = async (req, res) => {
+export const generatePendingSummary = async (req, res, next) => {
   try {
     let meeting = await Meeting.findOne({ roomId: req.params.meetingId });
     if (!meeting && req.params.meetingId.match(/^[0-9a-fA-F]{24}$/)) {
@@ -129,132 +155,36 @@ export const generatePendingSummary = async (req, res) => {
       return res.status(404).json({ message: 'Meeting not found' });
     }
 
-    const messages = await Message.find({ roomId: meeting.roomId }).populate('sender', 'name');
-    const chatText = messages
-      .map((message) => `${message.sender?.name || 'User'}: ${message.text}`)
-      .join('\n');
-    const notesText = meeting.notes || '';
-    let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
-    if (!summaryDoc) {
-      summaryDoc = new Summary({
-        meetingId: meeting._id,
-        organizationId: meeting.organizationId,
-        title: meeting.title,
-        date: meeting.createdAt.toISOString().split('T')[0],
-        transcript: [],
-        generationStatus: 'generating',
-        generationError: ''
-      });
-      await summaryDoc.save();
-    }
-    const existingTranscript = summaryDoc?.transcript || [];
-    const fullTranscriptText = existingTranscript.join('\n');
-    const hasContent = Boolean(fullTranscriptText.trim() || chatText.trim() || notesText.trim());
-
-    if (!hasContent) {
-      if (!summaryDoc) {
-        summaryDoc = new Summary({
-          meetingId: meeting._id,
-          organizationId: meeting.organizationId,
-          title: meeting.title,
-          date: meeting.createdAt.toISOString().split('T')[0],
-          transcript: [],
-          generationStatus: 'failed',
-          generationError: 'No transcript, chat, or notes were captured for this meeting.'
-        });
-        await summaryDoc.save();
-      } else {
-        await Summary.updateOne(
-          { _id: summaryDoc._id },
-          {
-            $set: {
-              generationStatus: 'failed',
-              generationError: 'No transcript, chat, or notes were captured for this meeting.',
-              summary: '',
-              conclusions: '',
-              transcriptSummary: '',
-              chatSummary: '',
-              notesSummary: '',
-              actionItems: []
-            }
-          }
-        );
-      }
-
-      return res.status(400).json({ message: 'No transcript, chat, or notes available to generate summary.' });
+    if (!(await canUserAccessMeeting(meeting, req.user._id.toString()))) {
+      return res.status(403).json({ message: 'Not authorized to generate a summary for this meeting' });
     }
 
-    await Summary.updateOne(
-      { _id: summaryDoc._id },
-      {
-        $set: {
-          generationStatus: 'generating',
-          generationError: '',
-          generationStartedAt: new Date()
-        }
-      }
-    );
+    // Delegates to the same pipeline the socket `end-meeting` handler uses, so
+    // a manual regeneration and an automatic one cannot drift apart. `force`
+    // lets the user retry a summary that already completed or failed.
+    const result = await runSummaryPipeline({
+      io: req.app.get('io'),
+      meetingId: meeting._id,
+      roomId: meeting.roomId,
+      force: true,
+    });
 
-    const {
-      summary,
-      transcriptSummary,
-      chatSummary,
-      notesSummary,
-      conclusions,
-      actionItems
-    } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
+    if (result.status === 'no-content') {
+      return res
+        .status(400)
+        .json({ message: 'No transcript, chat, or notes available to generate summary.' });
+    }
 
-    await Summary.updateOne(
-      { _id: summaryDoc._id },
-      {
-        $set: {
-          summary: summary,
-          transcriptSummary: transcriptSummary || '',
-          chatSummary: chatSummary || '',
-          notesSummary: notesSummary || '',
-          conclusions: conclusions || '',
-          generationStatus: 'completed',
-          generationError: '',
-          generationStartedAt: summaryDoc.generationStartedAt || new Date(),
-          generatedAt: new Date(),
-          actionItems: actionItems.map((item, index) => ({
-            id: index + 1,
-            task: item.task,
-            assignee: item.assignee || 'Unassigned',
-            status: item.status || 'pending',
-            taskId: summaryDoc.actionItems?.[index]?.taskId || null
-          }))
-        }
-      }
-    );
+    if (result.status === 'failed') {
+      return res.status(502).json({ message: result.error || 'Failed to generate summary.' });
+    }
+
+    if (result.status === 'already-running-or-complete') {
+      return res.status(409).json({ message: 'A summary is already being generated for this meeting.' });
+    }
+
     res.json({ message: 'Summary generated successfully' });
   } catch (error) {
-    console.error('Generate summary error:', error);
-    try {
-      const meetingIdQuery = req.params.meetingId;
-      const meeting = await Meeting.findOne({
-        $or: [
-          { roomId: meetingIdQuery },
-          ...( /^[0-9a-fA-F]{24}$/.test(meetingIdQuery) ? [{ _id: meetingIdQuery }] : [] )
-        ]
-      }).select('_id');
-      if (meeting) {
-        const summaryDoc = await Summary.findOne({ meetingId: meeting._id });
-        if (summaryDoc) {
-          await Summary.updateOne(
-            { _id: summaryDoc._id },
-            {
-              $set: {
-                generationStatus: 'failed',
-                generationError: error.message || 'Failed to generate summary.'
-              }
-            }
-          );
-        }
-      }
-    } catch (statusErr) {
-      console.error('Failed to update summary generation status:', statusErr);
-    }
-    res.status(500).json({ message: error.message });
+    next(error);
   }
 };

@@ -27,4 +27,11 @@ const meetingSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// Dashboard listing and the search-scope resolver query on exactly these paths.
+meetingSchema.index({ host: 1, createdAt: -1 });
+meetingSchema.index({ participants: 1, createdAt: -1 });
+meetingSchema.index({ organizationId: 1, createdAt: -1 });
+meetingSchema.index({ allowedParticipants: 1 });
+meetingSchema.index({ allowedTeams: 1 });
+
 export default mongoose.model('Meeting', meetingSchema);

@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Organization from '../models/Organization.js';
 import OrganizationMember from '../models/OrganizationMember.js';
 
@@ -13,6 +14,34 @@ const GENERIC_DOMAINS = [
   'zoho.com',
   'yandex.com'
 ];
+
+/**
+ * Look up a user's membership in an organization.
+ * This is the single source of truth for "is this user in this org, and as what".
+ * Previously this query was copy-pasted inline in ~13 places.
+ *
+ * @returns {Promise<{ role: 'OrgAdmin' | 'OrgMember' } | null>} null when not a member
+ */
+export const getOrgMembership = async (userId, organizationId) => {
+  if (!userId || !organizationId) return null;
+  if (!mongoose.Types.ObjectId.isValid(organizationId)) return null;
+
+  return OrganizationMember.findOne({ userId, organizationId }).select('role').lean();
+};
+
+/**
+ * True when the user belongs to the organization at all.
+ */
+export const isOrgMember = async (userId, organizationId) =>
+  Boolean(await getOrgMembership(userId, organizationId));
+
+/**
+ * True when the user is an admin of the organization.
+ */
+export const isOrgAdmin = async (userId, organizationId) => {
+  const membership = await getOrgMembership(userId, organizationId);
+  return membership?.role === 'OrgAdmin';
+};
 
 export const checkAndJoinOrganizationByDomain = async (user) => {
   try {

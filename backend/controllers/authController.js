@@ -1,13 +1,26 @@
 import User from '../models/User.js';
-import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { checkAndJoinOrganizationByDomain } from '../utils/orgUtils.js';
+import {
+  issueTokenPair,
+  rotateRefreshToken,
+  revokeRefreshToken,
+  revokeAllForUser,
+  createAuthCode,
+  consumeAuthCode,
+  generateAccessToken,
+} from '../services/tokenService.js';
+import { sendPasswordResetEmail, isEmailEnabled } from '../services/emailService.js';
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
-};
+/** Shape a user document for a client response. Never includes secrets. */
+const publicUser = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  avatar: user.avatar,
+  authProvider: user.authProvider,
+});
 
 /**
  * @route   POST /api/auth/register
@@ -34,13 +47,8 @@ export const registerUser = async (req, res, next) => {
     await checkAndJoinOrganizationByDomain(user);
 
     res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      avatar: user.avatar,
-      authProvider: user.authProvider,
-      token: generateToken(user._id),
+      ...publicUser(user),
+      ...(await issueTokenPair(user._id, req)),
     });
   } catch (error) {
     next(error);
@@ -74,13 +82,77 @@ export const loginUser = async (req, res, next) => {
     }
 
     res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      avatar: user.avatar,
-      authProvider: user.authProvider,
-      token: generateToken(user._id),
+      ...publicUser(user),
+      ...(await issueTokenPair(user._id, req)),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @route   POST /api/auth/refresh
+ * @desc    Exchange a refresh token for a new access token (rotates the refresh token)
+ */
+export const refreshSession = async (req, res, next) => {
+  try {
+    const result = await rotateRefreshToken(req.body.refreshToken, req);
+
+    if (!result.ok) {
+      return res.status(401).json({ message: result.reason });
+    }
+
+    const user = await User.findById(result.userId).select('-password');
+    if (!user) {
+      return res.status(401).json({ message: 'User no longer exists' });
+    }
+
+    res.json({
+      ...publicUser(user),
+      token: result.token,
+      refreshToken: result.refreshToken,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @route   POST /api/auth/logout
+ * @desc    Revoke the presented refresh token (or all of the user's sessions)
+ */
+export const logout = async (req, res, next) => {
+  try {
+    if (req.body.allDevices && req.user) {
+      await revokeAllForUser(req.user._id);
+    } else {
+      await revokeRefreshToken(req.body.refreshToken);
+    }
+    res.json({ message: 'Logged out' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @route   POST /api/auth/oauth/exchange
+ * @desc    Redeem the one-time code from the Google callback for real tokens
+ */
+export const exchangeAuthCode = async (req, res, next) => {
+  try {
+    const userId = await consumeAuthCode(req.body.code);
+    if (!userId) {
+      return res.status(400).json({ message: 'Invalid or expired sign-in code' });
+    }
+
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired sign-in code' });
+    }
+
+    res.json({
+      ...publicUser(user),
+      ...(await issueTokenPair(user._id, req)),
     });
   } catch (error) {
     next(error);
@@ -133,13 +205,10 @@ export const updateUserProfile = async (req, res, next) => {
     const updatedUser = await user.save();
 
     res.json({
-      _id: updatedUser._id,
-      name: updatedUser.name,
-      email: updatedUser.email,
-      role: updatedUser.role,
-      avatar: updatedUser.avatar,
-      authProvider: updatedUser.authProvider,
-      token: generateToken(updatedUser._id),
+      ...publicUser(updatedUser),
+      // A profile edit is not a re-authentication, but the client keeps the
+      // token alongside the user object, so hand back a fresh access token.
+      token: generateAccessToken(updatedUser._id),
     });
   } catch (error) {
     next(error);
@@ -168,14 +237,19 @@ export const forgotPassword = async (req, res, next) => {
     const resetToken = user.generateResetToken();
     await user.save();
 
-    // In production, send this token via email.
-    // For now, return the token in the response (dev only).
     const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
 
+    // Previously the token was only ever returned in the response body when
+    // NODE_ENV !== 'production', which meant password reset was completely
+    // unusable on the deployed instance — the user got a success message and no
+    // way to actually reset.
+    await sendPasswordResetEmail({ to: user.email, name: user.name, resetUrl });
+
     res.json({
-      message: 'If an account with that email exists, a reset link has been generated.',
-      // DEV ONLY — remove in production
-      ...(process.env.NODE_ENV !== 'production' && { resetToken, resetUrl }),
+      message: 'If an account with that email exists, a reset link has been sent.',
+      // Only when no mail provider is configured, so the flow stays testable
+      // locally. With RESEND_API_KEY set, the token never leaves the server.
+      ...(!isEmailEnabled() && { resetToken, resetUrl, emailConfigured: false }),
     });
   } catch (error) {
     next(error);
@@ -216,9 +290,14 @@ export const resetPassword = async (req, res, next) => {
 
     await user.save();
 
+    // A password reset should end every existing session — that is the whole
+    // point when the reset was triggered because the account was compromised.
+    await revokeAllForUser(user._id);
+
     res.json({
       message: 'Password reset successful',
-      token: generateToken(user._id),
+      ...publicUser(user),
+      ...(await issueTokenPair(user._id, req)),
     });
   } catch (error) {
     next(error);
@@ -229,28 +308,17 @@ export const resetPassword = async (req, res, next) => {
  * @route   GET /api/auth/google/callback
  * @desc    Handle Google OAuth callback — generate JWT and redirect to frontend
  */
-export const googleCallback = (req, res) => {
+export const googleCallback = async (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
   try {
-    const user = req.user;
-    const token = generateToken(user._id);
-
-    // Build user data to pass to the frontend via URL params
-    const userData = encodeURIComponent(
-      JSON.stringify({
-        _id: user._id,
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        authProvider: user.authProvider,
-      })
-    );
-
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(`${frontendUrl}/auth/callback?token=${token}&user=${userData}`);
+    // Redirect with a single-use, 60-second code rather than the JWT itself.
+    // A token in the query string ends up in browser history, the Referer
+    // header of the next outbound request, and any intermediate proxy log.
+    const code = await createAuthCode(req.user._id);
+    res.redirect(`${frontendUrl}/auth/callback?code=${encodeURIComponent(code)}`);
   } catch (error) {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    console.error('[Auth] Google callback failed:', error.message);
     res.redirect(`${frontendUrl}/login?error=oauth_failed`);
   }
 };

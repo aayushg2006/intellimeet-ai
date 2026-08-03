@@ -1,6 +1,33 @@
 import Meeting from '../models/Meeting.js';
 import crypto from 'crypto';
 import { canUserAccessMeeting, canUserCreateMeeting } from '../utils/meetingAccess.js';
+import { getOrgMembership } from '../utils/orgUtils.js';
+import { notify, resolveMeetingRecipients } from '../services/notificationService.js';
+
+const notifyInvitees = async ({ req, meeting }) => {
+  const userIds = await resolveMeetingRecipients(meeting);
+  if (userIds.length === 0) return;
+
+  const when = meeting.scheduledAt
+    ? new Date(meeting.scheduledAt).toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      })
+    : 'now';
+
+  await notify({
+    io: req.app.get('io'),
+    userIds,
+    type: 'meeting_invite',
+    title: `${req.user.name} invited you to a meeting`,
+    body: `${meeting.title} — ${when}`,
+    link: `/meeting/${meeting.roomId}`,
+    actor: req.user,
+    organizationId: meeting.organizationId || null,
+    entityKind: 'meeting',
+    entityId: meeting._id.toString(),
+    dedupeKeyFor: (userId) => `meeting_invite:${meeting._id}:${userId}`,
+  });
+};
 
 export const getMeetings = async (req, res) => {
   try {
@@ -8,6 +35,11 @@ export const getMeetings = async (req, res) => {
     const query = {};
 
     if (organizationId && organizationId !== 'personal') {
+      // Same IDOR class as tasks: the org id is a client-supplied query param,
+      // so membership has to be proven before we scope the query to it.
+      if (!(await getOrgMembership(req.user._id.toString(), organizationId))) {
+        return res.status(403).json({ message: 'Not a member of this organization' });
+      }
       query.organizationId = organizationId;
     } else {
       query.$or = [{ host: req.user._id }, { participants: req.user._id }];
@@ -34,6 +66,9 @@ export const getMeetingById = async (req, res) => {
       .populate('allowedParticipants', 'name email avatar')
       .populate('allowedTeams', 'name owner');
     if (meeting) {
+      if (!(await canUserAccessMeeting(meeting, req.user._id))) {
+        return res.status(403).json({ message: 'Not authorized to view this meeting' });
+      }
       res.json(meeting);
     } else {
       res.status(404).json({ message: 'Meeting not found' });
@@ -53,11 +88,13 @@ export const getMeetingByRoomId = async (req, res) => {
       .populate('allowedTeams', '_id name owner');
       
     if (meeting) {
-      if (req.user) {
-        const canAccess = await canUserAccessMeeting(meeting, req.user._id);
-        if (!canAccess) {
-          return res.status(403).json({ message: 'You do not have permission to join this meeting.' });
-        }
+      // This route used to be unauthenticated, so `req.user` was always
+      // undefined and the permission check below never ran — the full meeting
+      // document, including every participant's email, was public to anyone
+      // who knew (or guessed) a room id.
+      const canAccess = await canUserAccessMeeting(meeting, req.user._id);
+      if (!canAccess) {
+        return res.status(403).json({ message: 'You do not have permission to join this meeting.' });
       }
       res.json(meeting);
     } else {
@@ -109,6 +146,15 @@ export const createMeeting = async (req, res) => {
     
     // Populate host before returning so the frontend gets { host: { _id, name } }
     await createdMeeting.populate('host', '_id name email');
+
+    // Notify explicitly-invited people and team members. Org-wide meetings are
+    // deliberately excluded — they already appear on everyone's dashboard, and
+    // notifying a whole organization per meeting is noise.
+    if (normalizedAccessMode !== 'organization') {
+      notifyInvitees({ req, meeting: createdMeeting }).catch((err) =>
+        console.error('[Meeting] invite notify failed:', err.message)
+      );
+    }
 
     res.status(201).json(createdMeeting);
   } catch (error) {

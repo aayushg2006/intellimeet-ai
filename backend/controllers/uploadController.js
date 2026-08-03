@@ -2,6 +2,8 @@ import User from '../models/User.js';
 import Organization from '../models/Organization.js';
 import Meeting from '../models/Meeting.js';
 import s3Service from '../services/s3Service.js';
+import { canUserAccessMeeting } from '../utils/meetingAccess.js';
+import { getOrgMembership } from '../utils/orgUtils.js';
 
 const findMeetingByIdentifier = async (identifier) => {
   if (!identifier) return null;
@@ -10,6 +12,65 @@ const findMeetingByIdentifier = async (identifier) => {
     queries.push({ _id: identifier });
   }
   return Meeting.findOne({ $or: queries });
+};
+
+/**
+ * Decide whether a user may read or delete a given S3 key.
+ *
+ * Keys are shaped `<folder>/<ownerId>/<filename>`. This is DEFAULT DENY: any
+ * folder we do not explicitly recognise is refused. Previously `recordings/`
+ * and unknown folders fell through the if/else chain with no check at all,
+ * which let any authenticated user mint a pre-signed URL for — or delete —
+ * an arbitrary object in the bucket.
+ *
+ * @param {'read'|'delete'} intent
+ * @returns {Promise<{ allowed: boolean, message?: string }>}
+ */
+const authorizeKeyAccess = async (key, user, intent) => {
+  const [folder, ownerId] = String(key).split('/');
+  const userId = user._id.toString();
+
+  if (!folder || !ownerId) {
+    return { allowed: false, message: 'Malformed file key' };
+  }
+
+  switch (folder) {
+    case 'avatars':
+      // Avatars are only ever fetched by their owner; other users' avatars are
+      // surfaced through populated meeting/team payloads, not by raw key.
+      return ownerId === userId
+        ? { allowed: true }
+        : { allowed: false, message: 'Not authorized' };
+
+    case 'logos': {
+      const membership = await getOrgMembership(userId, ownerId);
+      if (!membership) return { allowed: false, message: 'Not authorized' };
+      // Any member may view the logo; only an admin may delete it.
+      if (intent === 'delete' && membership.role !== 'OrgAdmin') {
+        return { allowed: false, message: 'Only an organization admin can delete the logo' };
+      }
+      return { allowed: true };
+    }
+
+    case 'meetings':
+    case 'recordings': {
+      const meeting = await findMeetingByIdentifier(ownerId);
+      if (!meeting) return { allowed: false, message: 'Not authorized' };
+
+      if (intent === 'delete') {
+        return meeting.host.toString() === userId
+          ? { allowed: true }
+          : { allowed: false, message: 'Only the meeting host can delete meeting files' };
+      }
+
+      return (await canUserAccessMeeting(meeting, userId))
+        ? { allowed: true }
+        : { allowed: false, message: 'Not authorized' };
+    }
+
+    default:
+      return { allowed: false, message: 'Not authorized' };
+  }
 };
 
 /**
@@ -70,8 +131,12 @@ export const uploadOrgLogo = async (req, res) => {
       return res.status(404).json({ message: 'Organization not found' });
     }
     
-    if (org.owner.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Only organization owner can upload logo' });
+    // `Organization` has no `owner` field — the previous check on `org.owner`
+    // threw on every request, so this endpoint always returned 500. Membership
+    // lives in the OrganizationMember collection.
+    const membership = await getOrgMembership(req.user._id.toString(), organizationId);
+    if (membership?.role !== 'OrgAdmin') {
+      return res.status(403).json({ message: 'Only an organization admin can upload a logo' });
     }
 
     // Delete old logo if exists
@@ -112,6 +177,10 @@ export const uploadMeetingFile = async (req, res) => {
     const meeting = await findMeetingByIdentifier(meetingId);
     if (!meeting) {
       return res.status(404).json({ message: 'Meeting not found' });
+    }
+
+    if (!(await canUserAccessMeeting(meeting, req.user._id.toString()))) {
+      return res.status(403).json({ message: 'Not authorized to upload to this meeting' });
     }
 
     const keyOwner = meeting._id.toString();
@@ -163,6 +232,12 @@ export const uploadRecording = async (req, res) => {
       return res.status(404).json({ message: 'Meeting not found' });
     }
 
+    // Only the host may store a recording — a recording overwrites whatever is
+    // already on the meeting, so participant-level access is not enough here.
+    if (meeting.host.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Only the meeting host can upload a recording' });
+    }
+
     // Delete old recording if exists
     if (meeting.recordingKey) {
       try { await s3Service.deleteFile(meeting.recordingKey); } catch (e) { /* ignore */ }
@@ -194,22 +269,9 @@ export const getFileUrl = async (req, res) => {
       return res.status(400).json({ message: 'key query parameter is required' });
     }
     
-    const parts = key.split('/');
-    const folder = parts[0];
-    const ownerId = parts[1];
-
-    if (folder === 'avatars' && ownerId !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Not authorized' });
-    } else if (folder === 'logos') {
-      const org = await Organization.findById(ownerId);
-      if (!org || (org.owner.toString() !== req.user._id.toString() && !org.members.some(m => m.toString() === req.user._id.toString()))) {
-         return res.status(403).json({ message: 'Not authorized' });
-      }
-    } else if (folder === 'meetings') {
-      const meeting = await findMeetingByIdentifier(ownerId);
-      if (!meeting || (meeting.host.toString() !== req.user._id.toString() && !meeting.participants.some(p => p.toString() === req.user._id.toString()))) {
-         return res.status(403).json({ message: 'Not authorized' });
-      }
+    const { allowed, message } = await authorizeKeyAccess(key, req.user, 'read');
+    if (!allowed) {
+      return res.status(403).json({ message });
     }
 
     const url = await s3Service.getSignedUrl(key);
@@ -231,22 +293,9 @@ export const deleteUpload = async (req, res) => {
       return res.status(400).json({ message: 'key query parameter is required' });
     }
 
-    const parts = key.split('/');
-    const folder = parts[0];
-    const ownerId = parts[1];
-
-    if (folder === 'avatars' && ownerId !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'Not authorized' });
-    } else if (folder === 'logos') {
-      const org = await Organization.findById(ownerId);
-      if (!org || org.owner.toString() !== req.user._id.toString()) {
-         return res.status(403).json({ message: 'Not authorized to delete logo' });
-      }
-    } else if (folder === 'meetings') {
-      const meeting = await findMeetingByIdentifier(ownerId);
-      if (!meeting || meeting.host.toString() !== req.user._id.toString()) {
-         return res.status(403).json({ message: 'Not authorized to delete meeting files' });
-      }
+    const { allowed, message } = await authorizeKeyAccess(key, req.user, 'delete');
+    if (!allowed) {
+      return res.status(403).json({ message });
     }
 
     await s3Service.deleteFile(key);

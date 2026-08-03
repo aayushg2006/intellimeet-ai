@@ -11,4 +11,8 @@ const messageSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// Every chat fetch and the end-of-meeting summary build query by roomId and
+// read in chronological order; without this the query is a collection scan.
+messageSchema.index({ roomId: 1, createdAt: 1 });
+
 export default mongoose.model('Message', messageSchema);

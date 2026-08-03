@@ -4,28 +4,28 @@ import { z } from 'zod';
 
 export const registerSchema = z.object({
   name: z
-    .string({ required_error: 'Name is required' })
+    .string({ error: 'Name is required' })
     .trim()
     .min(2, 'Name must be at least 2 characters')
     .max(100, 'Name must be at most 100 characters'),
   email: z
-    .string({ required_error: 'Email is required' })
+    .string({ error: 'Email is required' })
     .trim()
     .email('Invalid email address')
     .max(255, 'Email must be at most 255 characters'),
   password: z
-    .string({ required_error: 'Password is required' })
+    .string({ error: 'Password is required' })
     .min(6, 'Password must be at least 6 characters')
     .max(128, 'Password must be at most 128 characters'),
 });
 
 export const loginSchema = z.object({
   email: z
-    .string({ required_error: 'Email is required' })
+    .string({ error: 'Email is required' })
     .trim()
     .email('Invalid email address'),
   password: z
-    .string({ required_error: 'Password is required' })
+    .string({ error: 'Password is required' })
     .min(1, 'Password is required'),
 });
 
@@ -43,26 +43,63 @@ export const updateProfileSchema = z.object({
 
 export const forgotPasswordSchema = z.object({
   email: z
-    .string({ required_error: 'Email is required' })
+    .string({ error: 'Email is required' })
     .trim()
     .email('Invalid email address'),
 });
 
 export const resetPasswordSchema = z.object({
   token: z
-    .string({ required_error: 'Reset token is required' })
+    .string({ error: 'Reset token is required' })
     .min(1, 'Reset token is required'),
   password: z
-    .string({ required_error: 'Password is required' })
+    .string({ error: 'Password is required' })
     .min(6, 'Password must be at least 6 characters')
     .max(128, 'Password must be at most 128 characters'),
+});
+
+export const refreshSchema = z.object({
+  refreshToken: z.string({ error: 'Refresh token is required' }).min(1, 'Refresh token is required'),
+});
+
+export const logoutSchema = z.object({
+  refreshToken: z.string().optional(),
+  allDevices: z.boolean().optional(),
+});
+
+export const authCodeSchema = z.object({
+  code: z.string({ error: 'Sign-in code is required' }).min(1, 'Sign-in code is required'),
+});
+
+// ─── NOTIFICATION & SEARCH SCHEMAS ───
+
+export const notificationListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: z.string().max(120).optional(),
+  filter: z.enum(['all', 'unread']).default('all'),
+});
+
+export const searchQuerySchema = z.object({
+  q: z.string().trim().min(2, 'Enter at least 2 characters').max(200),
+  organizationId: z.string().max(50).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  offset: z.coerce.number().int().min(0).max(500).default(0),
+});
+
+export const askQuestionSchema = z.object({
+  question: z
+    .string({ error: 'A question is required' })
+    .trim()
+    .min(5, 'Please ask a longer question')
+    .max(500, 'Question must be at most 500 characters'),
+  organizationId: z.string().max(50).nullable().optional(),
 });
 
 // ─── MEETING SCHEMAS ───
 
 export const createMeetingSchema = z.object({
   title: z
-    .string({ required_error: 'Title is required' })
+    .string({ error: 'Title is required' })
     .trim()
     .min(1, 'Title is required')
     .max(200, 'Title must be at most 200 characters'),
@@ -136,7 +173,7 @@ export const updateMeetingSchema = z.object({
 
 export const createTaskSchema = z.object({
   title: z
-    .string({ required_error: 'Title is required' })
+    .string({ error: 'Title is required' })
     .trim()
     .min(1, 'Title is required')
     .max(300, 'Title must be at most 300 characters'),
@@ -171,7 +208,7 @@ export const updateTaskSchema = z.object({
 // ─── MESSAGE SCHEMAS ───
 
 export const createSummarySchema = z.object({
-  meetingId: z.string({ required_error: 'Meeting ID is required' }),
+  meetingId: z.string({ error: 'Meeting ID is required' }),
   summary: z.string().optional(),
   transcriptSummary: z.string().optional(),
   chatSummary: z.string().optional(),

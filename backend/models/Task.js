@@ -15,4 +15,10 @@ const taskSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// These three are the only shapes getTasks ever queries.
+taskSchema.index({ organizationId: 1, createdAt: -1 });
+taskSchema.index({ assignee: 1, createdAt: -1 });
+taskSchema.index({ meetingId: 1 });
+taskSchema.index({ teamId: 1 });
+
 export default mongoose.model('Task', taskSchema);

@@ -9,8 +9,11 @@ import {
   forgotPassword,
   resetPassword,
   googleCallback,
+  refreshSession,
+  logout,
+  exchangeAuthCode,
 } from '../controllers/authController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 import { validate } from '../middleware/validate.js';
 import {
   registerSchema,
@@ -18,6 +21,9 @@ import {
   updateProfileSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  refreshSchema,
+  logoutSchema,
+  authCodeSchema,
 } from '../validators/schemas.js';
 
 const router = express.Router();
@@ -42,6 +48,22 @@ const resetLimiter = rateLimit({
 // ─── Local Auth ───
 router.post('/register', authLimiter, validate(registerSchema), registerUser);
 router.post('/login', authLimiter, validate(loginSchema), loginUser);
+
+// ─── Session lifecycle ───
+// Deliberately on its own, looser limiter: a browser with several tabs open can
+// legitimately refresh a few times in quick succession, and being locked out of
+// refresh means being logged out.
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { message: 'Too many refresh attempts, please sign in again' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+router.post('/refresh', refreshLimiter, validate(refreshSchema), refreshSession);
+router.post('/logout', optionalAuth, validate(logoutSchema), logout);
+router.post('/oauth/exchange', authLimiter, validate(authCodeSchema), exchangeAuthCode);
 
 // ─── Profile ───
 router.get('/profile', protect, getUserProfile);

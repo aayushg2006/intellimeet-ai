@@ -1,19 +1,48 @@
 import Meeting from '../models/Meeting.js';
 import Message from '../models/Message.js';
 import Summary from '../models/Summary.js';
-import Task from '../models/Task.js';
 import mongoose from 'mongoose';
-import aiService from '../services/aiService.js';
 import jwt from 'jsonwebtoken';
+import { runSummaryPipeline } from '../services/summaryPipeline.js';
+import copilotService from '../services/copilotService.js';
+import { notify, resolveMentions } from '../services/notificationService.js';
 import { canUserAccessMeeting } from '../utils/meetingAccess.js';
+import { getOrgMembership } from '../utils/orgUtils.js';
+import { stateStore } from '../lib/stateStore.js';
+import { keys, TTL } from '../lib/stateKeys.js';
 
-// In-memory waiting room: roomId -> [{ socketId, userObj }]
-const waitingRooms = {};
+// Pending debounced note flushes: roomId -> setTimeout handle.
+// This one stays in local memory deliberately — a timer handle is not
+// serialisable, and a duplicate flush from another instance is harmless
+// because notes are written last-write-wins.
+const notesFlushTimers = new Map();
 
-// In-memory transcripts: roomId -> [ "sentence 1", "sentence 2" ]
-const roomTranscripts = {};
-const notesBuffer = {};
-const summaryCache = {};
+/**
+ * Notify anyone @mentioned in a chat message.
+ * Mention resolution is scoped to meeting members inside the service.
+ */
+const notifyMentions = async ({ io, socket, roomId, text }) => {
+  const meeting = await Meeting.findOne({ roomId }).select(
+    'title roomId host participants allowedParticipants allowedTeams organizationId'
+  );
+  if (!meeting) return;
+
+  const mentionedIds = await resolveMentions(text, meeting);
+  if (mentionedIds.length === 0) return;
+
+  await notify({
+    io,
+    userIds: mentionedIds,
+    type: 'mention',
+    title: `${socket.userObj?.name || 'Someone'} mentioned you`,
+    body: text.slice(0, 140),
+    link: `/meeting/${meeting.roomId}`,
+    actor: { _id: socket.user?.id, name: socket.userObj?.name },
+    organizationId: meeting.organizationId,
+    entityKind: 'message',
+    entityId: meeting._id.toString(),
+  });
+};
 
 const socketHandler = (io) => {
   io.use((socket, next) => {
@@ -30,31 +59,50 @@ const socketHandler = (io) => {
     }
   });
 
-  // Cleanup interval every 30 minutes for abandoned meetings
+  // Every key in the state store carries a TTL, so abandoned meetings expire on
+  // their own. This sweep only clears the local timer map, which TTLs can't
+  // reach. It is cheap and single-instance by nature.
   setInterval(() => {
-    const allRooms = io.sockets.adapter.rooms;
-    for (const roomId in roomTranscripts) {
-      if (!allRooms.has(roomId)) {
-        delete roomTranscripts[roomId];
-        delete waitingRooms[roomId];
-        delete summaryCache[roomId];
-        if (notesBuffer[roomId]) {
-          clearTimeout(notesBuffer[roomId]);
-          delete notesBuffer[roomId];
-        }
-      }
+    for (const [roomId, timer] of notesFlushTimers) {
+      io.in(roomId)
+        .fetchSockets()
+        .then((sockets) => {
+          if (sockets.length === 0) {
+            clearTimeout(timer);
+            notesFlushTimers.delete(roomId);
+          }
+        })
+        .catch(() => {});
     }
   }, 30 * 60 * 1000);
 
   io.on('connection', (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
 
+    // A room per user, so the server can push to a specific person (e.g.
+    // notifications) rather than only to a meeting or workspace. With the Redis
+    // adapter this works across instances for free.
+    if (socket.user?.id) {
+      socket.join(`user_${socket.user.id}`);
+    }
+
     // ─── WORKSPACE (Team) ROOMS ───
-    socket.on('join-workspace', (workspaceId) => {
-      if (workspaceId) {
-        socket.join(`workspace_${workspaceId}`);
-        console.log(`[Socket] ${socket.id} joined workspace_${workspaceId}`);
+    socket.on('join-workspace', async (workspaceId) => {
+      if (!workspaceId) return;
+
+      // 'personal' is the user's own workspace; anything else is an
+      // organization id and requires membership. Without this, any socket could
+      // join any org's room and receive its task-refresh broadcasts.
+      if (workspaceId !== 'personal') {
+        const membership = await getOrgMembership(socket.user?.id, workspaceId);
+        if (!membership) {
+          console.warn(`[Socket] ${socket.id} denied workspace_${workspaceId}`);
+          return;
+        }
       }
+
+      socket.join(`workspace_${workspaceId}`);
+      console.log(`[Socket] ${socket.id} joined workspace_${workspaceId}`);
     });
 
     socket.on('leave-workspace', (workspaceId) => {
@@ -89,10 +137,19 @@ const socketHandler = (io) => {
         // Determine if this user is the host
         const isHost = !!(userObj.id && meeting.host.toString() === userObj.id);
 
-        // Persist on socket for use in other handlers
+        // Persist on socket for use in other handlers. Guests get `roomId` set
+        // here too (not on admission) because a remote socket's properties
+        // cannot be written from another instance.
         socket.roomId = roomId;
         socket.userObj = userObj;
         socket.isHost = isHost;
+
+        // Cache what the chat handler needs so it doesn't hit Mongo per message.
+        await stateStore.set(
+          keys.roomMeta(roomId),
+          { meetingId: meeting._id.toString(), title: meeting.title },
+          TTL.MEETING
+        );
 
         if (isHost) {
           // Host joins the room immediately
@@ -106,11 +163,10 @@ const socketHandler = (io) => {
           socket.to(roomId).emit('user-connected', socket.id, userObj);
 
           // Flush any pending waiting room requests to the host
-          if (waitingRooms[roomId] && waitingRooms[roomId].length > 0) {
-            console.log(`[Socket] Flushing ${waitingRooms[roomId].length} waiting requests to host`);
-            waitingRooms[roomId].forEach((req) => {
-              socket.emit('join-request', req);
-            });
+          const pending = Object.values(await stateStore.hgetall(keys.waiting(roomId)));
+          if (pending.length > 0) {
+            console.log(`[Socket] Flushing ${pending.length} waiting requests to host`);
+            pending.forEach((req) => socket.emit('join-request', req));
           }
         } else {
           // Guest — put in a private waiting room
@@ -119,11 +175,8 @@ const socketHandler = (io) => {
 
           const requestData = { socketId: socket.id, userObj, roomId };
 
-          // Store in waiting room (avoid duplicates)
-          if (!waitingRooms[roomId]) waitingRooms[roomId] = [];
-          if (!waitingRooms[roomId].find((r) => r.socketId === socket.id)) {
-            waitingRooms[roomId].push(requestData);
-          }
+          // Hash keyed by socket id, so re-joining replaces rather than duplicates.
+          await stateStore.hset(keys.waiting(roomId), socket.id, requestData, TTL.WAITING);
 
           // Broadcast to the room (host will pick it up)
           io.to(roomId).emit('join-request', requestData);
@@ -137,47 +190,49 @@ const socketHandler = (io) => {
     // ─── ACCEPT JOIN ───
     socket.on('accept-join', async (guestSocketId, roomId, guestUserObj) => {
       try {
-        console.log(`[Socket] Host accepted guest ${guestSocketId} into room ${roomId}`);
-
-        // Remove from waiting list
-        if (waitingRooms[roomId]) {
-          waitingRooms[roomId] = waitingRooms[roomId].filter((r) => r.socketId !== guestSocketId);
+        // Only the host of this room may admit guests — otherwise any
+        // participant could bypass the waiting room on the host's behalf.
+        if (!socket.isHost || socket.roomId !== roomId) {
+          return socket.emit('room-error', 'Only the host can admit participants.');
         }
 
+        console.log(`[Socket] Host accepted guest ${guestSocketId} into room ${roomId}`);
+
+        await stateStore.hdel(keys.waiting(roomId), guestSocketId);
+
         // Add to meeting participants in DB
-        const meeting = await Meeting.findOne({ roomId });
-        if (meeting && guestUserObj && guestUserObj.id && mongoose.Types.ObjectId.isValid(guestUserObj.id)) {
-          if (!meeting.participants.map(String).includes(guestUserObj.id)) {
-            meeting.participants.push(guestUserObj.id);
-            await meeting.save();
-          }
+        if (guestUserObj?.id && mongoose.Types.ObjectId.isValid(guestUserObj.id)) {
+          // $addToSet is atomic, so two hosts admitting at once can't clobber
+          // each other the way read-modify-save could.
+          await Meeting.updateOne({ roomId }, { $addToSet: { participants: guestUserObj.id } });
         }
 
         // Tell the guest they're accepted
         io.to(`waiting-${guestSocketId}`).emit('join-accepted');
 
-        // Move guest socket into the actual room
-        const guestSocket = io.sockets.sockets.get(guestSocketId);
-        if (guestSocket) {
-          guestSocket.leave(`waiting-${guestSocketId}`);
-          guestSocket.join(roomId);
-          guestSocket.roomId = roomId;
-          console.log(`[Socket] Guest ${guestSocketId} moved into room ${roomId}`);
+        // Move the guest into the room using adapter-aware calls. The previous
+        // `io.sockets.sockets.get()` only sees sockets connected to THIS
+        // instance, so with more than one server a guest would be silently
+        // stranded in the waiting room forever.
+        await io.in(guestSocketId).socketsLeave(`waiting-${guestSocketId}`);
+        await io.in(guestSocketId).socketsJoin(roomId);
+        console.log(`[Socket] Guest ${guestSocketId} moved into room ${roomId}`);
 
-          // Tell everyone in the room (including the host) about the new user
-          guestSocket.to(roomId).emit('user-connected', guestSocketId, guestUserObj);
-        }
+        // Tell everyone already in the room about the new user
+        io.to(roomId).except(guestSocketId).emit('user-connected', guestSocketId, guestUserObj);
       } catch (err) {
         console.error('[Socket] accept-join error:', err);
       }
     });
 
     // ─── REJECT JOIN ───
-    socket.on('reject-join', (guestSocketId, roomId) => {
-      console.log(`[Socket] Host rejected guest ${guestSocketId} from room ${roomId}`);
-      if (waitingRooms[roomId]) {
-        waitingRooms[roomId] = waitingRooms[roomId].filter((r) => r.socketId !== guestSocketId);
+    socket.on('reject-join', async (guestSocketId, roomId) => {
+      if (!socket.isHost || socket.roomId !== roomId) {
+        return socket.emit('room-error', 'Only the host can reject participants.');
       }
+
+      console.log(`[Socket] Host rejected guest ${guestSocketId} from room ${roomId}`);
+      await stateStore.hdel(keys.waiting(roomId), guestSocketId);
       io.to(`waiting-${guestSocketId}`).emit('join-rejected');
     });
 
@@ -253,11 +308,17 @@ const socketHandler = (io) => {
       try {
         if (!msgData.roomId || (!msgData.text && !msgData.fileUrl)) return;
 
-        // If sender is a valid ObjectId, save to DB
-        if (msgData.sender && mongoose.Types.ObjectId.isValid(msgData.sender)) {
+        // Only allow posting into a room this socket has actually joined, and
+        // always attribute the message to the authenticated user. The client
+        // used to supply `msgData.sender`, which let any participant post as
+        // somebody else.
+        if (socket.roomId !== msgData.roomId) return;
+        const senderId = socket.user?.id;
+
+        if (senderId && mongoose.Types.ObjectId.isValid(senderId)) {
           const message = new Message({
             roomId: msgData.roomId,
-            sender: msgData.sender,
+            sender: senderId,
             text: msgData.text,
             type: msgData.type || 'text',
             fileUrl: msgData.fileUrl,
@@ -267,6 +328,13 @@ const socketHandler = (io) => {
           await message.save();
           const populated = await Message.findById(message._id).populate('sender', 'name avatar');
           io.to(msgData.roomId).emit('chat-message', populated);
+
+          // @mentions — best-effort, never blocks message delivery.
+          if (msgData.text?.includes('@')) {
+            notifyMentions({ io, socket, roomId: msgData.roomId, text: msgData.text }).catch((err) =>
+              console.error('[Socket] mention notify failed:', err.message)
+            );
+          }
         } else {
           // Guest without valid user ID — broadcast without DB save
           io.to(msgData.roomId).emit('chat-message', {
@@ -292,11 +360,16 @@ const socketHandler = (io) => {
         socket.to(roomId).emit('note-update', notes);
 
         // Throttle saving to DB to once every 3 seconds per room
-        if (notesBuffer[roomId]) clearTimeout(notesBuffer[roomId]);
-        notesBuffer[roomId] = setTimeout(async () => {
-          await Meeting.updateOne({ roomId }, { $set: { notes } });
-          delete notesBuffer[roomId];
-        }, 3000);
+        const pending = notesFlushTimers.get(roomId);
+        if (pending) clearTimeout(pending);
+        notesFlushTimers.set(roomId, setTimeout(async () => {
+          notesFlushTimers.delete(roomId);
+          try {
+            await Meeting.updateOne({ roomId }, { $set: { notes } });
+          } catch (err) {
+            console.error('[Socket] note flush failed:', err.message);
+          }
+        }, 3000));
       } catch (error) {
         console.error('[Socket] note-update error:', error);
       }
@@ -306,45 +379,52 @@ const socketHandler = (io) => {
     // Receives a transcribed line of text from a user's browser
     socket.on('audio-transcription', async (roomId, text) => {
       try {
-        if (!roomTranscripts[roomId]) roomTranscripts[roomId] = [];
-        
-        if (text && text.trim().length > 0) {
-          const transcriptLine = `${socket.userObj?.name || 'Guest'}: ${text}`;
-          roomTranscripts[roomId].push(transcriptLine);
-          io.to(roomId).emit('transcript-update', transcriptLine);
+        if (!text || !text.trim() || socket.roomId !== roomId) return;
 
-          // Persist to MongoDB incrementally so transcripts survive server restarts
-          try {
-            let cache = summaryCache[roomId];
-            if (!cache) {
-              const meeting = await Meeting.findOne({ roomId });
-              if (meeting) {
-                let summaryDoc = await Summary.findOne({ meetingId: meeting._id });
-                if (!summaryDoc) {
-                  summaryDoc = new Summary({
+        const transcriptLine = `${socket.userObj?.name || 'Guest'}: ${text}`;
+        await stateStore.listPush(keys.transcript(roomId), transcriptLine);
+        await stateStore.expire(keys.transcript(roomId), TTL.MEETING);
+        io.to(roomId).emit('transcript-update', transcriptLine);
+
+        // Persist to MongoDB incrementally so transcripts survive server restarts
+        try {
+          let summaryDocId = await stateStore.get(keys.summaryDoc(roomId));
+
+          if (!summaryDocId) {
+            const meeting = await Meeting.findOne({ roomId });
+            if (meeting) {
+              // Upsert rather than find-then-create: two transcript lines
+              // arriving together used to race and both try to insert, which
+              // the unique index on meetingId rejects.
+              const summaryDoc = await Summary.findOneAndUpdate(
+                { meetingId: meeting._id },
+                {
+                  $setOnInsert: {
                     meetingId: meeting._id,
                     organizationId: meeting.organizationId,
                     title: meeting.title,
                     date: meeting.createdAt.toISOString().split('T')[0],
-                    transcript: []
-                  });
-                  await summaryDoc.save();
-                }
-                cache = { summaryDocId: summaryDoc._id };
-                summaryCache[roomId] = cache;
-              }
-            }
-            
-            if (cache) {
-              await Summary.updateOne(
-                { _id: cache.summaryDocId },
-                { $push: { transcript: transcriptLine } }
+                  },
+                },
+                { upsert: true, new: true, setDefaultsOnInsert: true }
               );
+              summaryDocId = summaryDoc._id.toString();
+              await stateStore.set(keys.summaryDoc(roomId), summaryDocId, TTL.MEETING);
             }
-          } catch (dbErr) {
-            console.error('[Socket] Failed to persist transcript line:', dbErr.message);
           }
+
+          if (summaryDocId) {
+            await Summary.updateOne({ _id: summaryDocId }, { $push: { transcript: transcriptLine } });
+          }
+        } catch (dbErr) {
+          console.error('[Socket] Failed to persist transcript line:', dbErr.message);
         }
+
+        // Live copilot analysis — fire-and-forget so a slow or failing AI call
+        // can never delay or drop transcript persistence.
+        copilotService.onTranscriptLine(io, roomId).catch((err) =>
+          console.error('[Copilot] tick failed:', err.message)
+        );
       } catch (err) {
         console.error('Error handling transcript chunk:', err);
       }
@@ -352,183 +432,50 @@ const socketHandler = (io) => {
 
     // ─── END MEETING ───
     socket.on('end-meeting', async (roomId) => {
-      if (socket.roomId === roomId && socket.isHost) {
-        try {
-          const meeting = await Meeting.findOne({ roomId });
-          if (meeting) {
-            const wasAlreadyCompleted = meeting.status === 'completed';
-            if (!wasAlreadyCompleted) {
-              meeting.status = 'completed';
-              meeting.endedAt = new Date();
-              await meeting.save();
-              console.log(`[Socket] Meeting ${roomId} ended by host`);
-            }
-            
-            // Notify all users in the room that the meeting has ended (even if already marked completed)
-            io.to(roomId).emit('meeting-ended');
+      if (socket.roomId !== roomId || !socket.isHost) return;
 
-            if (!wasAlreadyCompleted) {
-              const meetingId = meeting._id;
-              const meetingOrgId = meeting.organizationId;
-              const meetingTitle = meeting.title;
-              const meetingDate = meeting.createdAt.toISOString().split('T')[0];
+      try {
+        // Atomically flip to completed, so a double-click (or a retry) can't
+        // start two summary generations.
+        const meeting = await Meeting.findOneAndUpdate(
+          { roomId, status: { $ne: 'completed' } },
+          { $set: { status: 'completed', endedAt: new Date() } },
+          { new: true }
+        );
 
-              (async () => {
-                try {
-                  let summaryDoc = await Summary.findOne({ meetingId });
-                  const transcript = summaryDoc?.transcript?.length ? summaryDoc.transcript : (roomTranscripts[roomId] || []);
-                  const messages = await Message.find({ roomId }).populate('sender', 'name');
-                  const chatText = messages.map((m) => `${m.sender?.name || 'User'}: ${m.text}`).join('\n');
-                  const notesText = meeting.notes || '';
-                  const hasContent = Boolean(transcript.length || chatText.trim() || notesText.trim());
+        // Tell the room either way — the second caller still needs to be kicked out.
+        io.to(roomId).emit('meeting-ended');
 
-                  if (!summaryDoc) {
-                    summaryDoc = new Summary({
-                      meetingId,
-                      organizationId: meetingOrgId,
-                      title: meetingTitle,
-                      date: meetingDate,
-                      transcript,
-                      generationStatus: hasContent ? 'generating' : 'failed',
-                      generationError: hasContent ? '' : 'No transcript, chat, or notes were captured for this meeting.',
-                      generationStartedAt: hasContent ? new Date() : undefined
-                    });
-                    await summaryDoc.save();
-                  } else {
-                    await Summary.updateOne(
-                      { _id: summaryDoc._id },
-                      {
-                        $set: {
-                          transcript,
-                          generationStatus: hasContent ? 'generating' : 'failed',
-                          generationError: hasContent ? '' : 'No transcript, chat, or notes were captured for this meeting.',
-                          generationStartedAt: hasContent ? new Date() : summaryDoc.generationStartedAt
-                        }
-                      }
-                    );
-                  }
+        if (!meeting) return;
 
-                  if (!hasContent) {
-                    delete roomTranscripts[roomId];
-                    return;
-                  }
+        console.log(`[Socket] Meeting ${roomId} ended by host`);
 
-                  const fullTranscriptText = transcript.join('\n');
-                  console.log(`[AI] Generating summary for meeting ${roomId}...`);
-
-                  const {
-                    summary,
-                    transcriptSummary,
-                    chatSummary,
-                    notesSummary,
-                    conclusions,
-                    actionItems
-                  } = await aiService.generateSummary(fullTranscriptText, chatText, notesText);
-
-                  const enrichedActionItems = [];
-
-                  if (actionItems && actionItems.length > 0) {
-                    for (let index = 0; index < actionItems.length; index += 1) {
-                      const item = actionItems[index];
-                      const taskText = item.task || '';
-                      try {
-                        const createdTask = await Task.create({
-                          title: taskText.substring(0, 50) + (taskText.length > 50 ? '...' : ''),
-                          description: taskText,
-                          status: 'Todo',
-                          priority: 'medium',
-                          meetingId: meetingId,
-                          meetingTitle: meetingTitle,
-                          organizationId: meetingOrgId,
-                          teamId: meeting.teamId,
-                          assignee: null
-                        });
-                        enrichedActionItems.push({
-                          id: index + 1,
-                          task: taskText,
-                          assignee: item.assignee || 'Unassigned',
-                          status: item.status || 'pending',
-                          meetingTitle: meetingTitle,
-                          taskId: createdTask._id.toString(),
-                        });
-                      } catch (e) {
-                        console.error('[AI] Failed to create task for action item:', e);
-                      }
-                    }
-                  }
-
-                  const storedActionItems = enrichedActionItems.length > 0
-                    ? enrichedActionItems
-                    : actionItems.map((item, index) => ({
-                        id: index + 1,
-                        task: item.task,
-                        assignee: item.assignee || 'Unassigned',
-                        status: item.status || 'pending',
-                        meetingTitle: meetingTitle
-                      }));
-
-                  await Summary.updateOne(
-                    { _id: summaryDoc._id },
-                    {
-                      $set: {
-                        summary,
-                        transcriptSummary: transcriptSummary || '',
-                        chatSummary: chatSummary || '',
-                        notesSummary: notesSummary || '',
-                        conclusions: conclusions || '',
-                        generationStatus: 'completed',
-                        generationError: '',
-                        generationStartedAt: summaryDoc.generationStartedAt || new Date(),
-                        generatedAt: new Date(),
-                        actionItems: storedActionItems
-                      }
-                    }
-                  );
-
-                  console.log(`[AI] Summary and tasks saved for meeting ${roomId}.`);
-                  delete roomTranscripts[roomId];
-                } catch (aiErr) {
-                  console.error(`[AI] Background summary generation failed for ${roomId}:`, aiErr.message);
-                  try {
-                    const failedSummaryDoc = await Summary.findOne({ meetingId: meeting._id });
-                    if (failedSummaryDoc) {
-                      await Summary.updateOne(
-                        { _id: failedSummaryDoc._id },
-                        {
-                          $set: {
-                            generationStatus: 'failed',
-                            generationError: aiErr.message || 'Failed to generate summary.'
-                          }
-                        }
-                      );
-                    }
-                  } catch (statusErr) {
-                    console.error('[AI] Failed to update summary failure status:', statusErr);
-                  }
-                }
-              })();
-            }
-          }
-        } catch (error) {
-          console.error('[Socket] end-meeting error:', error);
-        }
+        // Fire-and-forget: summary generation takes tens of seconds and must
+        // not hold the socket handler open.
+        runSummaryPipeline({ io, meetingId: meeting._id, roomId }).catch((err) =>
+          console.error('[Socket] summary pipeline failed:', err.message)
+        );
+      } catch (error) {
+        console.error('[Socket] end-meeting error:', error);
       }
     });
 
+    // ─── LIVE COPILOT ───
+    // `copilot:insights` only carries newly-found items, so a client joining
+    // late (or reconnecting) asks for the full picture once.
+    socket.on('copilot:sync', async (roomId) => {
+      if (socket.roomId !== roomId) return;
+      socket.emit('copilot:snapshot', await copilotService.getSnapshot(roomId));
+    });
+
     // ─── DISCONNECT ───
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       console.log(`[Socket] Disconnected: ${socket.id}`);
 
-      // Clean up from waiting rooms
-      Object.keys(waitingRooms).forEach((roomId) => {
-        waitingRooms[roomId] = waitingRooms[roomId].filter((r) => r.socketId !== socket.id);
-        if (waitingRooms[roomId].length === 0) {
-          delete waitingRooms[roomId];
-        }
-      });
-
-      // Notify room participants
+      // We know which room this socket was in, so this is a single targeted
+      // delete rather than a scan of every waiting room on the server.
       if (socket.roomId) {
+        await stateStore.hdel(keys.waiting(socket.roomId), socket.id);
         socket.to(socket.roomId).emit('user-disconnected', socket.id);
       }
     });
